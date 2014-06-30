@@ -1,0 +1,70 @@
+<html>
+<head>
+	<script src="../external/bmoor.min.js"></script>
+	<script src="../src/bmoor/db/Collection.js"></script>
+	<script src="../src/bmoor/db/Index.js"></script>
+	<script src="../src/bmoor/db/IndexTracker.js"></script>
+	<script src="../src/bmoor/db/Table.js"></script>
+</head>
+<body>
+	<script>
+		var d1 = { woot:2, yup:'derp' },
+			d2 = { derp:1, sup:3, woot:2 },
+			d3 = { derp:1, sup:3, woot:3 },
+			d4 = { derp:1, sup:2, woot:4 },
+			t1 = new bmoor.db.Index( 'woot', true ),
+			t2 = new bmoor.db.Index( ['derp','sup'] ),
+			table = new bmoor.db.Table({
+				key : 'id',
+				indexs : {
+					'findOne' : 'group',
+					'findTwo' : ['group','status']
+				}
+			}),
+			tracker = table.getTracker();
+
+		t1.insert( d1 );
+		console.log( t1.find({woot:2}) );
+		t1.remove( d1 );
+		console.log( t1.find({woot:2}) );
+
+		t2.insert( d2 );
+		t2.insert( d3 );
+		t2.insert( d4 );
+
+		console.log( t2.find({derp:1,sup:3}) );
+
+		//------------
+		table.set( {id : 1, name : 'one', group : 'one', status : 'open'} );
+		table.set( {id : 2, name : 'two', group : 'two', status : 'open'} );
+		table.set( {id : 3, name : 'three', group : 'two', status : 'closed'} );
+
+		console.log( 'finding one', table.find(1) );
+		console.log( 'finding group two', table.findOne('two') );
+		console.log( 'finding group and status', table.findTwo('two','closed') );
+		//------------
+		tracker.mark( 'id' );
+		console.log( 'should be false', tracker.needs('id', 0) );
+		console.log( 'should be false', tracker.needs('id', 1) );
+
+		tracker.mark( 'group', 'woot' );
+		console.log( 'should be false', tracker.needs('group', 'woot') );
+		console.log( 'should be true', tracker.needs('group', 'derp') );
+
+		console.log( 'should be false', tracker.needs({
+			'group' : 'woot'
+		}) );
+		console.log( 'should be false', tracker.needs({
+			'group'  : 'woot',
+			'status' : 'open'
+		}) );
+		console.log( 'should be true', tracker.needs({
+			'group'  : 'derp',
+			'status' : 'open'
+		}) );
+		//-----------
+		console.log( 'searching id', table.select({id : 2}) );
+		console.log( 'searching group', table.select({group : 'two'}) );
+	</script>
+</body>
+</html>
