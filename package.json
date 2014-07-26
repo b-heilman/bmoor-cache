@@ -1,0 +1,27 @@
+{
+  "name": "bmoor-cache",
+  "version": "0.0.1",
+  "author": "Brian Heilman <das.ist.junk@gmail.com>",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/b-heilman/bmoor-cache.git"
+  },
+  "main": "build/bmoor-cache.js",
+  "devDependencies": {
+    "npm": "*",
+    "jshint": "*",
+    "grunt": "*",
+    "grunt-contrib-jshint": "*",
+    "grunt-contrib-uglify": "*",
+    "grunt-contrib-concat": "*",
+    "grunt-contrib-jasmine": "*",
+    "karma": "*",
+    "grunt-karma": "*",
+    "karma-jasmine": "*",
+    "karma-chrome-launcher": "*",
+    "karma-phantomjs-launcher": "*",
+    "karma-firefox-launcher": "*",
+    "karma-ie-launcher": "*",
+    "karma-safari-launcher": "*"
+  }
+}
