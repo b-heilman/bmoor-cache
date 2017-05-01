@@ -1,27 +1,46 @@
 {
   "name": "bmoor-cache",
-  "version": "0.0.1",
+  "version": "0.3.0",
   "author": "Brian Heilman <das.ist.junk@gmail.com>",
+  "description": "Managing data and remote sources",
+  "license": "MIT",
   "repository": {
     "type": "git",
     "url": "git://github.com/b-heilman/bmoor-cache.git"
   },
-  "main": "build/bmoor-cache.js",
+  "main": "bmoor.js",
+  "scripts": {
+    "demo": "gulp serve",
+    "build": "gulp build"
+  },
+  "dependencies": {
+    "bmoor": "0.3.25",
+    "bmoor-data": "0.3.7",
+    "bmoor-comm": "0.3.2",
+    "es6-promise": "4.1.0"
+  },
   "devDependencies": {
-    "npm": "*",
-    "jshint": "*",
-    "grunt": "*",
-    "grunt-contrib-jshint": "*",
-    "grunt-contrib-uglify": "*",
-    "grunt-contrib-concat": "*",
-    "grunt-contrib-jasmine": "*",
-    "karma": "*",
-    "grunt-karma": "*",
-    "karma-jasmine": "*",
-    "karma-chrome-launcher": "*",
-    "karma-phantomjs-launcher": "*",
-    "karma-firefox-launcher": "*",
-    "karma-ie-launcher": "*",
-    "karma-safari-launcher": "*"
+    "babel-core": "6.22.1",
+    "babel-loader": "6.2.10",
+    "babel-plugin-syntax-dynamic-import": "6.18.0",
+    "babel-preset-es2015": "6.22.0",
+    "gulp": "3.9.1",
+    "gulp-express": "0.3.5",
+    "gulp-jshint": "2.0.4",
+    "gulp-load-plugins": "1.4.0",
+    "gulp-sourcemaps": "1.9.1",
+    "gulp-webserver": "0.9.1",
+    "jasmine": "2.5.3",
+    "jshint": "2.9.4",
+    "jshint-stylish": "2.2.1",
+    "karma": "1.5.0",
+    "karma-chrome-launcher": "2.0.0",
+    "karma-jasmine": "1.1.0",
+    "karma-phantomjs-launcher": "1.0.2",
+    "karma-sourcemap-loader": "0.3.7",
+    "karma-webpack": "2.0.2",
+    "map-stream": "0.0.6",
+    "webpack": "2.2.1",
+    "webpack-stream": "3.2.0"
   }
 }
