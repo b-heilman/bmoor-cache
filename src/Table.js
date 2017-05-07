@@ -1,6 +1,7 @@
 var bmoor = require('bmoor'),
 	Proxy = require('bmoor-data').object.Proxy,
 	schema = require('./Schema.js'),
+	Filter = require('./Filter.js'),
 	Promise = require('es6-promise').Promise,
 	Collection = require('bmoor-data').Collection;
 
@@ -8,7 +9,7 @@ function consume( table, res ){
 	var i, c;
 
 	for( i = 0, c = res.length; i < c; i++ ){
-		table.$set( res[i] );
+		table.set( res[i] );
 	}
 }
 
@@ -78,74 +79,86 @@ class Table {
 			);
 		}
 
-		dex = function( obj ){
+		this.$datum = function( obj ){
 			if ( obj instanceof Proxy ){
 				obj = obj.getDatum();
 			}
 
-			return parser( obj );
+			return obj;
+		};
+
+		this.$id = ( obj ) => {
+			return parser( this.$datum(obj) );
 		};
 
 		this.connector = ops.connector;
 		this.collection = new Collection();
-		this.index = this.collection.index( dex );
+		this.index = this.collection.index( this.$id );
+		this.options = ops;
 
-		this.$find = function( obj ){
-			return this.index.get( dex(obj) );
-		};
+		if ( ops.partialList ){
+			this.gotten = {};
+		}
+	}
 
-		// TODO : proxy won't work right now
-		this.$set = function( obj, delta ){
-			var t,
-				id = parser( obj );
+	find( obj ){
+		return this.index.get( this.$id(obj) );
+	}
 
-			if ( delta ){
-				t = this.index.get( id );
+	set( obj, delta ){
+		var id = this.$id( obj ),
+			t = this.index.get( id );
 
+		if ( id ){
+			if( t ){
 				if ( t instanceof Proxy ){
-					t.update( delta );
-				}else if ( t ){
-					ops.merge( t, delta );
+					t.update( delta || obj );
 				}else{
-					throw new Error(
-						'tried to update something that does not exist' +
-						JSON.stringify( obj )
-					);
+					this.options.merge( t, delta || obj );
 				}
 			}else{
-				if ( ops.proxy ){
-					t = new ops.proxy( obj );
+				if ( this.options.proxy ){
+					t = new (this.options.proxy)( obj );
 				}else{
 					t = obj;
 				}
 
 				this.collection.add( t );
 			}
+		}
 
-			return t;
+		return {
+			id: id,
+			ref: t
 		};
+	}
 
-		this.$del = function( obj ){
-			var t = this.index.get( parser(obj) );
+	_get( obj ){
+		return this.connector.read( this.$encode(obj) )
+			.then( ( res ) => {
+				var t = this.set( res );
 
-			this.collection.remove( t );
+				if ( this.gotten ){
+					this.gotten[ t.id ] = true;
+				}
 
-			return t;
-		};
+				return t.ref;
+			});
 	}
 
 	// get
 	get( obj ){
-		var t = this.$find( obj );
+		var t = this.find( obj );
 		
 		// how do I handle the object cacheing out?
 		if ( t ){
-			return Promise.resolve( t );
+			if ( this.gotten && !this.gotten[this.$id(obj)] ){
+				return this._get( obj );
+			}else{
+				return Promise.resolve( t );
+			}
 		}else{
-			return this.connector.read( this.$encode(obj) )
-				.then( ( res ) => {
-					return this.$set( res );
-				});
+			return this._get( obj );
 		}
 	}
 
@@ -166,7 +179,7 @@ class Table {
 
 	// insert
 	insert( obj ){
-		var t = this.$find( obj );
+		var t = this.find( obj );
 
 		if ( t ){
 			throw new Error(
@@ -177,8 +190,8 @@ class Table {
 			return this.connector.create( obj )
 				.then( ( res ) => {
 					return bmoor.isObject(res) ?
-						this.$set( res ) :
-						this.$set( obj );
+						this.set( res ).ref :
+						this.set( obj ).ref;
 				});
 		}
 	}
@@ -189,15 +202,16 @@ class Table {
 		var t;
 
 		from = this.$encode( from );
-		t = this.$find( from );
+		t = this.find( from );
 
 		if ( t ){
 			return this.connector.update( from, delta )
 				.then( ( res ) => {
 					if ( !ignoreResult ){
-						bmoor.isObject(res) ?
-							this.$set( from, res ) : 
-							this.$set( from, delta );
+						this.set( 
+							from, 
+							bmoor.isObject(res) ? res : delta 
+						);
 					}
 
 					return res;
@@ -210,14 +224,22 @@ class Table {
 		}
 	}
 
+	del( obj ){
+		var t = this.index.get( this.$id(obj) );
+
+		this.collection.remove( t );
+
+		return t;
+	}
+
 	// delete
 	delete( obj ){
-		var t = this.$find( obj );
+		var t = this.find( obj );
 
 		if ( t ){
 			return this.connector.delete( this.$encode(obj) )
 				.then( ( res ) => {
-					this.$del( obj );
+					this.del( obj );
 
 					return res;
 				});
@@ -230,26 +252,26 @@ class Table {
 	}
 
 	// select
-	select( qry ){
-		// TODO : turn qry into a function if it isn't
-
+	select( qry, fn ){
+		var t,
+			filter = new Filter( fn || qry );
+		
 		if ( this.$all ){
-			return this.$all;
+			t = this.$all;
 		}else if ( this.connector.search ){
-			// TODO : this is broken... how to make search compatible object
-			// a filter method?
-			return this.connector.search( qry ).then( ( res ) => {
+			// TODO : Feed doesn't currently support search
+			t = this.connector.search( qry ).then(( res ) => {
 				consume( this, res );
-
-				return this.collection.filter( qry );
 			});
 		}else{
-			return this.connector.all( qry ).then( ( res ) => {
-				consume( this, res );
-
-				return this.collection; 
-			});
+			t = this.all( qry );
 		}
+
+		return t.then(() => {
+			return this.collection.filter( ( datum ) => {
+				return filter.go( this.$datum(datum) );
+			});
+		});
 	}
 }
 

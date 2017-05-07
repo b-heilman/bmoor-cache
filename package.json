@@ -1,6 +1,6 @@
 {
   "name": "bmoor-cache",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "author": "Brian Heilman <das.ist.junk@gmail.com>",
   "description": "Managing data and remote sources",
   "license": "MIT",

@@ -143,6 +143,25 @@ describe('bmoor-cache::Table', function(){
 				});
 			});
 		});
+
+		describe('select', function(){
+			it ('should work', function( done ){
+				env.mock.expect('/test/all').respond([
+					{ id: 1, type: 'dog' },
+					{ id: 2, type: 'cat' },
+					{ id: 3, type: 'dog' },
+					{ id: 4, type: 'seal' },
+					{ id: 5, type: 'goose' },
+					{ id: 6, type: 'dog' }
+				]);
+
+				env.table.select({type:'dog'}).then(function( res ){
+					expect( res.data.length ).toBe( 3 );
+
+					done();
+				});
+			});
+		});
 	}
 
 	describe('basic structure', function(){
