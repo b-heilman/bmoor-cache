@@ -24,8 +24,7 @@ class Table {
 	* - proxy : proxy to apply to all elements
 	*/
 	constructor( name, ops ){
-		var dex,
-			parser,
+		var parser,
 			id = ops.id;
 
 		if ( !ops.connector ){

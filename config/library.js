@@ -1,1 +1,1 @@
-module.exports = require('../bmoor-analysis.js');
+module.exports = require('../bmoor-cache.js');
