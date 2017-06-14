@@ -132,16 +132,30 @@ class Table {
 		};
 	}
 
+	_set( obj ){
+		return new Promise( ( resolve ) => {
+			var t;
+
+			this.collection.once( 'update', () => {
+				resolve( t );
+			});
+			
+			t = this.set(obj).ref;
+		});
+	}
+
 	_get( obj ){
 		return this.connector.read( this.$encode(obj) )
 			.then( ( res ) => {
-				var t = this.set( res );
+				var t = this._set( res );
 
-				if ( this.gotten ){
-					this.gotten[ t.id ] = true;
-				}
+				t.then( ( d ) => {
+					if ( this.gotten ){
+						this.gotten[ d.id ] = true;
+					}
+				});
 
-				return t.ref;
+				return t;
 			});
 	}
 
@@ -165,12 +179,18 @@ class Table {
 	all( obj ){
 		// TODO : once again, cache this out somehow?
 		if ( !this.$all ){
-			this.$all = this.connector.all( obj )
-				.then( ( res ) => {
-					consume( this, res );
+			this.$all = new Promise( ( resolve, reject ) => {
+				this.connector.all( obj ).then(
+					( res ) => {
+						this.collection.once( 'update', () => {
+							resolve( this.collection ); 
+						});
 
-					return this.collection; 
-				});
+						consume( this, res );
+					},
+					reject
+				);
+			});
 		}
 
 		return this.$all;
@@ -186,12 +206,14 @@ class Table {
 				JSON.stringify( obj )
 			);
 		}else{
-			return this.connector.create( obj )
-				.then( ( res ) => {
-					return bmoor.isObject(res) ?
-						this.set( res ).ref :
-						this.set( obj ).ref;
-				});
+			return new Promise( ( resolve, reject ) => {
+				this.connector.create( obj ).then( 
+					( res ) => {
+						this._set( bmoor.isObject(res) ? res : obj );
+					},
+					reject
+				);
+			});
 		}
 	}
 

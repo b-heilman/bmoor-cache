@@ -15,8 +15,6 @@ describe('bmoor-cache::Table', function(){
 			env.table.get(1234).then(function( d ){
 				expect( getValue(d).foo ).toBe( 'bar' );
 				
-				jasmine.clock().tick(50);
-
 				env.table.get({id:1234}).then( function( d ){
 					expect( getValue(d).foo ).toBe( 'bar' );
 					
@@ -46,8 +44,6 @@ describe('bmoor-cache::Table', function(){
 
 				env.table.all().then(function( b ){
 					expect( a ).toEqual( b );
-
-					jasmine.clock().tick(50);
 
 					env.table.get({id:1234}).then( function( d ){
 						expect( getValue(d).foo ).toBe( 'bar' );
@@ -82,8 +78,6 @@ describe('bmoor-cache::Table', function(){
 				expect( getValue(a.data[1]) ).toEqual( all[1] );
 				expect( a.data.length ).toBe( all.length );
 
-				jasmine.clock().tick(50);
-
 				env.table.get({id:1}).then( function( d ){
 					expect( getValue(d) ).toBe( ein );
 
@@ -104,8 +98,6 @@ describe('bmoor-cache::Table', function(){
 			env.table.get(1).then(function( a ){
 				expect( getValue(a) ).toEqual( ein );
 			
-				jasmine.clock().tick(50);
-
 				env.table.update(1,{foo:'bar2'}).then( function( d ){
 					expect( d ).toBe( 'OK' );
 					expect( getValue(a).foo ).toBe( 'bar2' );
@@ -128,8 +120,6 @@ describe('bmoor-cache::Table', function(){
 			env.table.get(1).then(function( a ){
 				expect( getValue(a) ).toEqual( ein );
 			
-				jasmine.clock().tick(50);
-				
 				env.table.update(1,{foo:'bar2'}).then( function( d ){
 					expect( d.foo ).toBe( 3 ); // returns back raw
 					expect( getValue(a).foo ).toBe( 3 );
@@ -187,12 +177,10 @@ describe('bmoor-cache::Table', function(){
 				}
 			});
 			httpMock.enable();
-			jasmine.clock().install();
 		});
 
 		afterEach(function(){
 			httpMock.verifyWasFulfilled();
-			jasmine.clock().uninstall();
 		});
 
 		basicChecks( env, function( obj ){
@@ -222,12 +210,10 @@ describe('bmoor-cache::Table', function(){
 			});
 
 			httpMock.enable();
-			jasmine.clock().install();
 		});
 
 		afterEach(function(){
 			httpMock.verifyWasFulfilled();
-			jasmine.clock().uninstall();
 		});
 
 		basicChecks( env, function( proxy ){
