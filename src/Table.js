@@ -93,7 +93,9 @@ class Table {
 		this.connector = ops.connector;
 		this.collection = new Collection();
 		this.index = this.collection.index( this.$id );
-		this.options = ops;
+		
+		this._proxy = ops.proxy;
+		this._merge = ops.merge;
 
 		if ( ops.partialList ){
 			this.gotten = {};
@@ -113,34 +115,42 @@ class Table {
 				if ( t instanceof Proxy ){
 					t.update( delta || obj );
 				}else{
-					this.options.merge( t, delta || obj );
+					this._merge( t, delta || obj );
 				}
 			}else{
-				if ( this.options.proxy ){
-					t = new (this.options.proxy)( obj );
+				if ( this._proxy ){
+					t = new (this._proxy)( obj );
 				}else{
 					t = obj;
 				}
 
 				this.collection.add( t );
 			}
-		}
 
-		return {
-			id: id,
-			ref: t
-		};
+			return {
+				id: id,
+				ref: t
+			};
+		}else{
+			throw new Error(
+				'missing id for object: '+JSON.stringify( obj )
+			);
+		}
 	}
 
 	_set( obj ){
-		return new Promise( ( resolve ) => {
+		return new Promise( ( resolve, reject ) => {
 			var t;
 
 			this.collection.once( 'update', () => {
 				resolve( t );
 			});
 			
-			t = this.set(obj).ref;
+			try{
+				t = this.set(obj).ref;
+			}catch( ex ){
+				reject( ex );
+			}
 		});
 	}
 
@@ -186,9 +196,12 @@ class Table {
 							resolve( this.collection ); 
 						});
 
-						consume( this, res );
-					},
-					reject
+						try{
+							consume( this, res );
+						}catch( ex ){
+							reject( ex );
+						}
+					}
 				);
 			});
 		}
@@ -209,9 +222,12 @@ class Table {
 			return new Promise( ( resolve, reject ) => {
 				this.connector.create( obj ).then( 
 					( res ) => {
-						this._set( bmoor.isObject(res) ? res : obj );
-					},
-					reject
+						try{
+							this._set( bmoor.isObject(res) ? res : obj );
+						} catch( ex ){
+							reject( ex );
+						}
+					}
 				);
 			});
 		}
