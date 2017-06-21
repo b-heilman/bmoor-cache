@@ -219,16 +219,8 @@ class Table {
 				JSON.stringify( obj )
 			);
 		}else{
-			return new Promise( ( resolve, reject ) => {
-				this.connector.create( obj ).then( 
-					( res ) => {
-						try{
-							this._set( bmoor.isObject(res) ? res : obj );
-						} catch( ex ){
-							reject( ex );
-						}
-					}
-				);
+			return this.connector.create( obj ).then( ( res ) => {
+				return this._set( bmoor.isObject(res) ? res : obj );
 			});
 		}
 	}
