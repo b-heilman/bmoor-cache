@@ -142,12 +142,8 @@ class Table {
 		return new Promise( ( resolve, reject ) => {
 			var t;
 
-			this.collection.once( 'update', () => {
-				resolve( t );
-			});
-			
 			try{
-				t = this.set(obj).ref;
+				resolve( this.set(obj).ref );
 			}catch( ex ){
 				reject( ex );
 			}
