@@ -2042,7 +2042,7 @@ var bmoorCache =
 			if ( id ){
 				if( t ){
 					if ( t instanceof Proxy ){
-						t.update( delta || obj );
+						t.merge( delta || obj );
 					}else{
 						this._merge( t, delta || obj );
 					}
@@ -2855,7 +2855,7 @@ var bmoorCache =
 			function( def, v, errors ){
 				if ( typeof(v) !== def.type ){
 					errors.push({
-						from: def.from,
+						path: def.path,
 						type: 'type',
 						value: v,
 						expect: def.type
@@ -2868,7 +2868,7 @@ var bmoorCache =
 		var errors = [];
 
 		schema.forEach(function( def ){
-			(new Path(def.from)).exec( obj, function( v ){
+			(new Path(def.path)).exec( obj, function( v ){
 				tests.forEach(function( fn ){
 					fn( def, v, errors );
 				});
@@ -3241,12 +3241,20 @@ var bmoorCache =
 			};
 		}
 
+		_( path ){
+			return this.getDatum()[ path ];
+		}
+
 		getMask( seed ){
 			if ( !this.mask || seed ){
 				this.mask = makeMask( this.getDatum(), seed );
 			}
 
 			return this.mask;
+		}
+
+		$( path ){
+			return this.getMask()[ path ];
 		}
 
 		getChanges(){
@@ -3258,20 +3266,11 @@ var bmoorCache =
 		}
 
 		merge( delta ){
-			bmoor.object.merge( this.getDatum(), delta );
-			this.mask = null;
-		}
-
-		update( delta ){
-			var datum = this.getDatum();
-
-			if ( delta ){
-				if ( bmoor.isFunction(delta) ){
-					delta = delta( datum );
-				}else{
-					this.merge( delta );
-				}
+			if ( !delta ){
+				delta = this.mask;
 			}
+
+			bmoor.object.merge( this.getDatum(), delta );
 
 			this.mask = null;
 			this.trigger( 'update', delta );

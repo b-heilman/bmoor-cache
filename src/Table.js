@@ -114,7 +114,7 @@ class Table {
 		if ( id ){
 			if( t ){
 				if ( t instanceof Proxy ){
-					t.update( delta || obj );
+					t.merge( delta || obj );
 				}else{
 					this._merge( t, delta || obj );
 				}
