@@ -90,6 +90,7 @@ class Table {
 			return parser( this.$datum(obj) );
 		};
 
+		this.name = name;
 		this.connector = ops.connector;
 		this.collection = new Collection();
 		this.index = this.collection.index( this.$id );
@@ -140,8 +141,6 @@ class Table {
 
 	_set( obj ){
 		return new Promise( ( resolve, reject ) => {
-			var t;
-
 			try{
 				resolve( this.set(obj).ref );
 			}catch( ex ){
@@ -183,17 +182,13 @@ class Table {
 
 	// all
 	all( obj ){
-		// TODO : once again, cache this out somehow?
 		if ( !this.$all ){
 			this.$all = new Promise( ( resolve, reject ) => {
 				this.connector.all( obj ).then(
 					( res ) => {
-						this.collection.once( 'update', () => {
-							resolve( this.collection ); 
-						});
-
 						try{
 							consume( this, res );
+							resolve( this.collection );
 						}catch( ex ){
 							reject( ex );
 						}
