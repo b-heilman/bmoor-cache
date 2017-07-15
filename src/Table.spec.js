@@ -5,19 +5,83 @@ describe('bmoor-cache::Table', function(){
 		Table = require('./Table.js'),
 		httpMock = new (require('bmoor-comm').testing.Requestor)();
 
-	function basicChecks( env, getValue ){
+	describe('with base proxy', function(){
+		var table;
+
+		beforeEach(function(){
+			table = new Table('test',{
+				id: 'id',
+				connector: new Feed({
+					all: '/test/all',
+					read: '/test/{{id}}',
+					readMany: '/test?id[]={{id}}',
+					create: '/test/create',
+					update: '/test/update/{{id}}'
+				}),
+				proxy: Proxy
+			});
+
+			httpMock.enable();
+		});
+
+		afterEach(function(){
+			httpMock.verifyWasFulfilled();
+		});
+
 		it('should cache a read request', function( done ){
-			env.mock.expect('/test/1234').respond({
+			httpMock.expect('/test/1234').respond({
 				id: 1234,
 				foo: 'bar'
 			});
 
-			env.table.get(1234).then(function( d ){
-				expect( getValue(d).foo ).toBe( 'bar' );
+			table.get(1234).then(function( d ){
+				expect( d.getDatum().foo ).toBe( 'bar' );
 				
-				env.table.get({id:1234}).then( function( d ){
-					expect( getValue(d).foo ).toBe( 'bar' );
+				table.get({id:1234}).then( function( d ){
+					expect( d.getDatum().foo ).toBe( 'bar' );
 					
+					done();
+				}).catch( (ex) => {
+					console.log( ex.message );
+					console.log( ex );
+				});
+			}).catch( (ex) => {
+				console.log( ex.message );
+				console.log( ex );
+			});
+		});
+
+		it('should cache a read request', function( done ){
+			httpMock.expect('/test?id[]=1&id[]=2').respond([
+				{ id: 1 },
+				{ id: 2 }
+			]);
+
+			table.getMany([1,2]).then(function( d ){
+				expect( d.length ).toBe( 2 );
+				expect( d[0].getDatum().id ).toBe( 1 );
+				expect( d[1].getDatum().id ).toBe( 2 );
+
+				table.getMany([1,2]).then(function( d ){
+					expect( d.length ).toBe( 2 );
+					done();
+				});
+			});
+		});
+
+		it('should cache a read request - with objects', function( done ){
+			httpMock.expect('/test?id[]=1&id[]=2').respond([
+				{ id: 1 },
+				{ id: 2 }
+			]);
+
+			table.getMany([{id:1},{id:2}]).then(function( d ){
+				expect( d.length ).toBe( 2 );
+				expect( d[0].getDatum().id ).toBe( 1 );
+				expect( d[1].getDatum().id ).toBe( 2 );
+
+				table.getMany([1,2]).then(function( d ){
+					expect( d.length ).toBe( 2 );
 					done();
 				});
 			});
@@ -35,18 +99,18 @@ describe('bmoor-cache::Table', function(){
 				}
 			];
 
-			env.mock.expect('/test/all').respond( all );
+			httpMock.expect('/test/all').respond( all );
 
-			env.table.all().then(function( a ){
-				expect( getValue(a.data[0]) ).toEqual( all[0] );
-				expect( getValue(a.data[1]) ).toEqual( all[1] );
+			table.all().then(function( a ){
+				expect( a.data[0].getDatum() ).toEqual( all[0] );
+				expect( a.data[1].getDatum() ).toEqual( all[1] );
 				expect( a.data.length ).toEqual( all.length );
 
-				env.table.all().then(function( b ){
+				table.all().then(function( b ){
 					expect( a ).toEqual( b );
 
-					env.table.get({id:1234}).then( function( d ){
-						expect( getValue(d).foo ).toBe( 'bar' );
+					table.get({id:1234}).then( function( d ){
+						expect( d.getDatum().foo ).toBe( 'bar' );
 
 						done();
 					});
@@ -70,19 +134,35 @@ describe('bmoor-cache::Table', function(){
 					foo: 'barier'
 				};
 
-			env.mock.expect('/test/all').respond( all );
-			env.mock.expect('/test/1').respond( ein );
+			httpMock.expect('/test/all').respond( all );
+			httpMock.expect('/test/1').respond( ein );
+			httpMock.expect('/test/create').respond({
+				id: 3,
+				foo: 'woot'
+			});
 
-			env.table.all().then(function( a ){
-				expect( getValue(a.data[0]) ).toEqual( all[0] );
-				expect( getValue(a.data[1]) ).toEqual( all[1] );
-				expect( a.data.length ).toBe( all.length );
+			table.all().then(function( a ){
+				expect( a.data[0].getDatum() ).toEqual( all[0] );
+				expect( a.data[1].getDatum() ).toEqual( all[1] );
+				expect( a.data.length ).toBe( 2 );
 
-				env.table.get({id:1}).then( function( d ){
-					expect( getValue(d) ).toBe( ein );
+				return table.get({id:1}).then( function( d ){
+					expect( d.getDatum() ).toBe( ein );
+					expect( a.data.length ).toBe( 3 );
 
-					done();
+					return table.insert({hello:'world'}).then(function( d ){
+						expect( d.getDatum().foo ).toBe( 'woot' );
+						expect( d.getDatum().hello ).toBe( 'world' );
+					
+						expect( a.data.length ).toBe( 4 );
+
+						done();
+					});
 				});
+			}).catch( (ex) => {
+				console.log( ex.fileName, ex.lineNumber );
+				console.log( ex.message );
+				console.log( ex );
 			});
 		});
 
@@ -92,15 +172,15 @@ describe('bmoor-cache::Table', function(){
 					foo: 'bar'
 				};
 
-			env.mock.expect('/test/1').respond( ein );
-			env.mock.expect('/test/update/1').respond( 'OK' );
+			httpMock.expect('/test/1').respond( ein );
+			httpMock.expect('/test/update/1').respond( 'OK' );
 
-			env.table.get(1).then(function( a ){
-				expect( getValue(a) ).toEqual( ein );
+			table.get(1).then(function( a ){
+				expect( a.getDatum() ).toEqual( ein );
 			
-				env.table.update(1,{foo:'bar2'}).then( function( d ){
+				table.update(1,{foo:'bar2'}).then( function( d ){
 					expect( d ).toBe( 'OK' );
-					expect( getValue(a).foo ).toBe( 'bar2' );
+					expect( a.getDatum().foo ).toBe( 'bar2' );
 
 					done();
 				});
@@ -113,30 +193,30 @@ describe('bmoor-cache::Table', function(){
 					foo: 'bar'
 				};
 
-			env.mock.expect('/test/1').respond( ein );
-			env.mock.expect('/test/update/1').respond( {foo:3} );
-			env.mock.expect('/test/update/1').respond( {foo:30} );
+			httpMock.expect('/test/1').respond( ein );
+			httpMock.expect('/test/update/1').respond( {foo:3} );
+			httpMock.expect('/test/update/1').respond( {foo:30} );
 
-			env.table.get(1).then(function( a ){
-				expect( getValue(a) ).toEqual( ein );
+			table.get(1).then(function( a ){
+				expect( a.getDatum() ).toEqual( ein );
 			
-				env.table.update(1,{foo:'bar2'}).then( function( d ){
+				table.update(1,{foo:'bar2'}).then( function( d ){
 					expect( d.foo ).toBe( 3 ); // returns back raw
-					expect( getValue(a).foo ).toBe( 3 );
-				});
+					expect( a.getDatum().foo ).toBe( 3 );
 
-				env.table.update(1,{foo:'bar2'},true).then( function( d ){
-					expect( d.foo ).toBe( 30 ); // returns back raw
-					expect( getValue(a).foo ).toBe( 3 );
-					
-					done();
+					table.update(1,{foo:'bar3'}).then( function( d ){
+						expect( d.foo ).toBe( 30 ); // returns back raw
+						expect( a.getDatum().foo ).toBe( 30 );
+						
+						done();
+					});
 				});
 			});
 		});
 
 		describe('select', function(){
 			it ('should work', function( done ){
-				env.mock.expect('/test/all').respond([
+				httpMock.expect('/test/all').respond([
 					{ id: 1, type: 'dog' },
 					{ id: 2, type: 'cat' },
 					{ id: 3, type: 'dog' },
@@ -145,68 +225,98 @@ describe('bmoor-cache::Table', function(){
 					{ id: 6, type: 'dog' }
 				]);
 
-				env.table.select({type:'dog'}).then(function( res ){
+				table.select({type:'dog'}).then(function( res ){
 					expect( res.data.length ).toBe( 3 );
 
 					done();
 				});
 			});
-		});
-	}
 
-	describe('basic structure', function(){
-		var table,
-			env = {
-				mock: httpMock
-			},
-			http = new Feed(
-				{
-					all: '/test/all',
-					read: '/test/{{id}}',
-					create: '/test/create',
-					update: '/test/update/{{id}}'
-				}
-			);
+			it('should cache selectes', function( done ){
+				var first,
+					second;
 
-		beforeEach(function(){
-			env.table = new Table('test',{
-				id: 'id',
-				connector: http,
-				merge: function( to, from ){
-					to.foo = from.foo;
-				}
+				httpMock.expect('/test/all').respond([
+					{ id: 1, type: 'dog' },
+					{ id: 2, type: 'cat' },
+					{ id: 3, type: 'dog' },
+					{ id: 4, type: 'seal' },
+					{ id: 5, type: 'goose' },
+					{ id: 6, type: 'dog' }
+				]);
+
+				table.select({type:'dog'}).then(function( res ){
+					expect( res.data.length ).toBe( 3 );
+
+					first = res;
+				});
+
+				table.select({type:'dog'}).then(function( res ){
+					expect( res.data.length ).toBe( 3 );
+
+					second = res;
+
+					expect( first ).toBe( second );
+
+					first.$disconnect();
+					second.$disconnect();
+
+					table.select({type:'dog'}).then(function( res ){
+						expect( second ).not.toBe( res );
+						done();
+					});
+				});
 			});
-			httpMock.enable();
-		});
-
-		afterEach(function(){
-			httpMock.verifyWasFulfilled();
-		});
-
-		basicChecks( env, function( obj ){
-			return obj;
 		});
 	});
 
-	describe('with proxy', function(){
+	describe('with cache Proxy', function(){
 		var table,
-			env = {
-				mock: httpMock
-			},
-			http = new Feed(
-				{
-					all: '/test/all',
-					read: '/test/{{id}}',
-					create: '/test/create',
-					update: '/test/update/{{id}}'
-				}
-			);
+			table2,
+			table3;
 
 		beforeEach(function(){
-			env.table = new Table('test',{
+			table = new Table('test1',{
 				id: 'id',
-				connector: http,
-				proxy: Proxy
+				connector: new Feed({
+					all: '/test/all',
+					read: '/test/{{id}}',
+					readMany: '/test?id[]={{id}}',
+					create: '/test/create',
+					update: '/test/update/{{id}}'
+				}),
+				join: {
+					'test-2': {
+						field: 'value2',
+						table: 'test2'
+					},
+					'test-3': {
+						field: 'value3',
+						table: 'test3'
+					}
+				}
+			});
+
+			table2 = new Table('test2',{
+				id: 'id',
+				connector: new Feed({
+					all: '/test2/all',
+					read: '/test2/{{id}}',
+					readMany: '/test2?id[]={{id}}',
+					create: '/test2/create',
+					update: '/test2/update/{{id}}'
+				})
+			});
+
+			table3 = new Table('test3',{
+				id: 'id',
+				connector: new Feed({
+					all: '/test3/all',
+					read: '/test3/{{id}}',
+					readMany: '/test3?id[]={{id}}',
+					create: '/test3/create',
+					update: '/test3/update/{{id}}'
+				})
 			});
 
 			httpMock.enable();
@@ -216,8 +326,49 @@ describe('bmoor-cache::Table', function(){
 			httpMock.verifyWasFulfilled();
 		});
 
-		basicChecks( env, function( proxy ){
-			return proxy.getDatum();
+		it('should cache a read request', function( done ){
+			httpMock.expect('/test/1234').respond({
+				id: 1234,
+				foo: 'bar',
+				value2: 1,
+				value3: [ 2, 3 ]
+			});
+
+			httpMock.expect('/test2/1').respond({
+				id: 1,
+				type: 'test2'
+			});
+
+			httpMock.expect('/test3?id[]=2&id[]=3').respond([{
+				id: 2,
+				type: 'test3'
+			},{
+				id: 3,
+				type: 'test3'
+			}]);
+
+			table.get(1234).then(function( d ){
+				expect( d.getDatum().foo ).toBe( 'bar' );
+				
+				return Promise.all([
+					table.get({id:1234}).then( function( d ){
+						expect( d.getDatum().foo ).toBe( 'bar' );
+					}),
+					d.join('test-2').then(function( d ){
+						expect( d.getDatum().type ).toBe( 'test2' );
+					}),
+					d.join('test-3').then(function( d ){
+						expect( d.length ).toBe( 2 );
+						expect( d[0].getDatum().type ).toBe( 'test3' );
+					})
+				]).then(function(){
+					done();
+				});
+			}).catch( (ex) => {
+				console.log( ex.fileName, ex.lineNumber );
+				console.log( ex.message );
+				console.log( ex );
+			});
 		});
 	});
 });

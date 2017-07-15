@@ -1,5 +1,6 @@
 var bmoor = require('bmoor'),
-	Proxy = require('bmoor-data').object.Proxy,
+	P = require('bmoor-data').object.Proxy,
+	Proxy = require('./Proxy.js'),
 	schema = require('./Schema.js'),
 	Filter = require('./Filter.js'),
 	Promise = require('es6-promise').Promise,
@@ -20,7 +21,6 @@ class Table {
 	* <required>
 	* - connector : bmoor-comm.connector object
 	* - id
-	* - merge : fn( to, from )
 	* - proxy : proxy to apply to all elements
 	*/
 	constructor( name, ops ){
@@ -39,10 +39,8 @@ class Table {
 			);
 		}
 
-		if ( !( ops.proxy || ops.merge ) ){
-			throw new Error(
-				'bmoor-comm::Table requires a merge field for collisions'
-			);
+		if ( !ops.proxy ){
+			ops.proxy = Proxy;
 		}
 
 		schema.register( name, this );
@@ -79,7 +77,7 @@ class Table {
 		}
 
 		this.$datum = function( obj ){
-			if ( obj instanceof Proxy ){
+			if ( obj instanceof P ){
 				obj = obj.getDatum();
 			}
 
@@ -94,9 +92,10 @@ class Table {
 		this.connector = ops.connector;
 		this.collection = new Collection();
 		this.index = this.collection.index( this.$id );
+		this._selections = {};
 		
-		this._proxy = ops.proxy;
-		this._merge = ops.merge;
+		this.proxy = ops.proxy;
+		this.join = ops.join;
 
 		if ( ops.partialList ){
 			this.gotten = {};
@@ -113,17 +112,9 @@ class Table {
 
 		if ( id ){
 			if( t ){
-				if ( t instanceof Proxy ){
-					t.merge( delta || obj );
-				}else{
-					this._merge( t, delta || obj );
-				}
+				t.merge( delta || obj );
 			}else{
-				if ( this._proxy ){
-					t = new (this._proxy)( obj );
-				}else{
-					t = obj;
-				}
+				t = new (this.proxy)( obj, this.join );
 
 				this.collection.add( t );
 			}
@@ -139,36 +130,27 @@ class Table {
 		}
 	}
 
+	// Used to check if that datum has been specifically fetched
 	_set( obj ){
-		return new Promise( ( resolve, reject ) => {
-			try{
-				resolve( this.set(obj).ref );
-			}catch( ex ){
-				reject( ex );
-			}
-		});
+		var t = this.set(obj);
+
+		// TODO : I might want to time out the gotten cache
+		if ( this.gotten ){
+			this.gotten[ t.id ] = true;
+		}
+
+		return t.ref;
 	}
 
 	_get( obj ){
 		return this.connector.read( this.$encode(obj) )
-			.then( ( res ) => {
-				var t = this._set( res );
-
-				t.then( ( d ) => {
-					if ( this.gotten ){
-						this.gotten[ d.id ] = true;
-					}
-				});
-
-				return t;
-			});
+			.then( ( res ) => { return this._set( res ); });
 	}
 
 	// get
 	get( obj ){
 		var t = this.find( obj );
 		
-		// how do I handle the object cacheing out?
 		if ( t ){
 			if ( this.gotten && !this.gotten[this.$id(obj)] ){
 				return this._get( obj );
@@ -178,6 +160,65 @@ class Table {
 		}else{
 			return this._get( obj );
 		}
+	}
+
+	getMany( arr ){
+		var rtn,
+			all = [],
+			req = [];
+
+		// reduce the list using gotten
+		if ( this.gotten ){
+			arr.forEach( ( r ) => {
+				var t = this.$id(r);
+
+				all.push( t );
+
+				if ( !this.gotten[t] ){
+					req.push( this.$encode(r) );
+				}
+			});
+		}else{
+			arr.forEach( ( r ) => {
+				var t = this.$id(r);
+
+				all.push( t );
+
+				if ( !this.index.get(t) ){
+					req.push( this.$encode(r) );
+				}
+			});
+		}
+
+		if ( req.length ){
+			// this works because I can assume id was defined for 
+			// the feed
+			if ( this.connector.readMany ){
+				rtn = this.connector.readMany( req )
+			}else{
+				// The feed doesn't have readMany, so many reads will work
+				req.forEach( ( id, i ) => {
+					req[i] = this.connector.read( id );
+				});
+				rtn = Promise.all( req );
+			}
+
+			rtn.then( ( res ) => {
+				res.forEach( ( r ) => {
+					this._set( r );
+				})
+			});
+		}else{
+			rtn = Promise.resolve( true ); // nothing to do
+		}
+
+		return rtn.then( () => {
+			all.forEach( ( id, i ) => {
+				all[i] = this.index.get( id );
+			});
+
+			return all;
+		});
 	}
 
 	// all
@@ -211,27 +252,42 @@ class Table {
 			);
 		}else{
 			return this.connector.create( obj ).then( ( res ) => {
-				return this._set( bmoor.isObject(res) ? res : obj );
+				var proxy = this.set( res ).ref;
+
+				proxy.merge( obj );
+
+				return proxy;
 			});
 		}
 	}
 
 	// update
 	// delta is optional
-	update( from, delta, ignoreResult ){
-		var t;
+	update( from, delta ){
+		var t,
+			wasProxy = false;
 
-		from = this.$encode( from );
-		t = this.find( from );
+		if ( from instanceof P ){
+			wasProxy = true;
+
+			t = from;
+			from = t.getDatum();
+		}else{
+			from = this.$encode( from );
+			t = this.find( from );
+		}
+
+		if ( !delta ){
+			delta = t.getChanges();
+		}
 
 		if ( t ){
 			return this.connector.update( from, delta )
 				.then( ( res ) => {
-					if ( !ignoreResult ){
-						this.set( 
-							from, 
-							bmoor.isObject(res) ? res : delta 
-						);
+					t.merge( delta );
+
+					if ( bmoor.isObject(res) ){
+						t.merge( res );
 					}
 
 					return res;
@@ -272,14 +328,21 @@ class Table {
 	}
 
 	// select
-	select( qry, fn ){
-		var t,
-			filter = new Filter( fn || qry );
+	select( qry, fn, hash ){
+		var op,
+			filter = new Filter( fn || qry, hash ),
+			selections = this._selections,
+			t = selections[filter.hash];
 		
+		if ( t ){
+			t.count++;
+
+			return t.filter;
+		}
+
 		if ( this.$all ){
 			t = this.$all;
 		}else if ( this.connector.search ){
-			// TODO : Feed doesn't currently support search
 			t = this.connector.search( qry ).then(( res ) => {
 				consume( this, res );
 			});
@@ -287,11 +350,28 @@ class Table {
 			t = this.all( qry );
 		}
 
-		return t.then(() => {
-			return this.collection.filter( ( datum ) => {
-				return filter.go( this.$datum(datum) );
-			});
-		});
+		selections[filter.hash] = op = {
+			filter: t.then(() => {
+				var res = this.collection.filter( ( datum ) => {
+						return filter.go( this.$datum(datum) );
+					}),
+					disconnect = res.$disconnect;
+
+				res.$disconnect = function(){
+					op.count--;
+
+					if ( !op.count ){
+						selections[filter.hash] = null;
+						disconnect();
+					}
+				};
+
+				return res;
+			}),
+			count: 1
+		};
+
+		return op.filter;
 	}
 }
 
