@@ -5,7 +5,7 @@ describe('bmoor-cache::Table', function(){
 		Table = require('./Table.js'),
 		httpMock = new (require('bmoor-comm').testing.Requestor)();
 
-	describe('with base proxy', function(){
+	describe('simple requests', function(){
 		var table;
 
 		beforeEach(function(){
@@ -87,39 +87,9 @@ describe('bmoor-cache::Table', function(){
 			});
 		});
 
-		it('should cache a all request, and not need a matching read', function( done ){
-			var all = [
-				{
-					id: 1234,
-					foo: 'bar'
-				},
-				{
-					id: 1235,
-					foo: 'bar2'
-				}
-			];
-
-			httpMock.expect('/test/all').respond( all );
-
-			table.all().then(function( a ){
-				expect( a.data[0].getDatum() ).toEqual( all[0] );
-				expect( a.data[1].getDatum() ).toEqual( all[1] );
-				expect( a.data.length ).toEqual( all.length );
-
-				table.all().then(function( b ){
-					expect( a ).toEqual( b );
-
-					table.get({id:1234}).then( function( d ){
-						expect( d.getDatum().foo ).toBe( 'bar' );
-
-						done();
-					});
-				});
-			});
-		});
-
-		it('should cache a all request, and call read on miss', function( done ){
-			var all = [
+		describe('all requests', function(){
+			it('should cache a all request, and not need a matching read', function( done ){
+				var all = [
 					{
 						id: 1234,
 						foo: 'bar'
@@ -128,41 +98,118 @@ describe('bmoor-cache::Table', function(){
 						id: 1235,
 						foo: 'bar2'
 					}
-				],
-				ein = {
-					id: 1,
-					foo: 'barier'
-				};
+				];
 
-			httpMock.expect('/test/all').respond( all );
-			httpMock.expect('/test/1').respond( ein );
-			httpMock.expect('/test/create').respond({
-				id: 3,
-				foo: 'woot'
+				httpMock.expect('/test/all').respond( all );
+
+				table.all().then(function( a ){
+					expect( a.data[0].getDatum() ).toEqual( all[0] );
+					expect( a.data[1].getDatum() ).toEqual( all[1] );
+					expect( a.data.length ).toEqual( all.length );
+
+					table.all().then(function( b ){
+						expect( a ).toEqual( b );
+
+						table.get({id:1234}).then( function( d ){
+							expect( d.getDatum().foo ).toBe( 'bar' );
+
+							done();
+						});
+					});
+				});
 			});
 
-			table.all().then(function( a ){
-				expect( a.data[0].getDatum() ).toEqual( all[0] );
-				expect( a.data[1].getDatum() ).toEqual( all[1] );
-				expect( a.data.length ).toBe( 2 );
+			it('should allow for a cache bust call of an all request', function( done ){
+				var all = [
+						{
+							id: 1234,
+							foo: 'bar'
+						},
+						{
+							id: 1235,
+							foo: 'bar2'
+						}
+					],
+					all2 = [
+						{
+							id: 1234,
+							foo: 'bar'
+						},
+						{
+							id: 1235,
+							foo: 'bar2'
+						},
+						{
+							id: 1236,
+							foo: 'bar3'
+						}
+					];
 
-				return table.get({id:1}).then( function( d ){
-					expect( d.getDatum() ).toBe( ein );
-					expect( a.data.length ).toBe( 3 );
+				httpMock.expect('/test/all').respond( all );
+				httpMock.expect('/test/all').respond( all2 );
 
-					return table.insert({hello:'world'}).then(function( d ){
-						expect( d.getDatum().foo ).toBe( 'woot' );
-						expect( d.getDatum().hello ).toBe( 'world' );
-					
-						expect( a.data.length ).toBe( 4 );
+				table.all().then(function( a ){
+					expect( a.data[0].getDatum() ).toEqual( all[0] );
+					expect( a.data[1].getDatum() ).toEqual( all[1] );
+					expect( a.data.length ).toEqual( 2 );
+
+					table.all( null, {cached:false} ).then(function( b ){
+						expect( b.data[0].getDatum() ).toEqual( all[0] );
+						expect( b.data[1].getDatum() ).toEqual( all[1] );
+						expect( b.data[2].getDatum() ).toEqual( all2[2] );
+						expect( b.data.length ).toEqual( 3 );
 
 						done();
 					});
 				});
-			}).catch( (ex) => {
-				console.log( ex.fileName, ex.lineNumber );
-				console.log( ex.message );
-				console.log( ex );
+			});
+		
+			it('should cache and call read on miss', function( done ){
+				var all = [
+						{
+							id: 1234,
+							foo: 'bar'
+						},
+						{
+							id: 1235,
+							foo: 'bar2'
+						}
+					],
+					ein = {
+						id: 1,
+						foo: 'barier'
+					};
+
+				httpMock.expect('/test/all').respond( all );
+				httpMock.expect('/test/1').respond( ein );
+				httpMock.expect('/test/create').respond({
+					id: 3,
+					foo: 'woot'
+				});
+
+				table.all().then(function( a ){
+					expect( a.data[0].getDatum() ).toEqual( all[0] );
+					expect( a.data[1].getDatum() ).toEqual( all[1] );
+					expect( a.data.length ).toBe( 2 );
+
+					return table.get({id:1}).then( function( d ){
+						expect( d.getDatum() ).toBe( ein );
+						expect( a.data.length ).toBe( 3 );
+
+						return table.insert({hello:'world'}).then(function( d ){
+							expect( d.getDatum().foo ).toBe( 'woot' );
+							expect( d.getDatum().hello ).toBe( 'world' );
+						
+							expect( a.data.length ).toBe( 4 );
+
+							done();
+						});
+					});
+				}).catch( (ex) => {
+					console.log( ex.fileName, ex.lineNumber );
+					console.log( ex.message );
+					console.log( ex );
+				});
 			});
 		});
 
@@ -267,10 +314,100 @@ describe('bmoor-cache::Table', function(){
 					});
 				});
 			});
+
+			it('should allow cache busting selectes', function( done ){
+				var first,
+					second;
+
+				httpMock.expect('/test/all').respond([
+					{ id: 1, type: 'dog' },
+					{ id: 2, type: 'cat' },
+					{ id: 3, type: 'dog' },
+					{ id: 4, type: 'seal' },
+					{ id: 5, type: 'goose' },
+					{ id: 6, type: 'dog' }
+				]);
+
+				httpMock.expect('/test/all').respond([
+					{ id: 1, type: 'dog' },
+					{ id: 2, type: 'cat' },
+					{ id: 3, type: 'dog' },
+					{ id: 4, type: 'seal' },
+					{ id: 5, type: 'goose' },
+					{ id: 6, type: 'dog' },
+					{ id: 7, type: 'dog' }
+				]);
+
+				table.select({type:'dog'}).then(function( res ){
+					expect( res.data.length ).toBe( 3 );
+
+					return table.select({type:'dog'},{cached:false}).then(function( res ){
+						expect( res.data.length ).toBe( 4 );
+
+						done();
+					});
+				}).catch( (ex) => { 
+					console.log( ex.fileName, ex.lineNumber );
+					console.log( ex.message );
+					console.log( ex );
+				});
+			});
 		});
 	});
 
-	describe('with cache Proxy', function(){
+	describe('table select', function(){
+		var table;
+
+		beforeEach(function(){
+			table = new Table('test',{
+				id: 'id',
+				connector: new Feed({
+					search: '/test/{{type}}'
+				}),
+				proxy: Proxy
+			});
+
+			httpMock.enable();
+		});
+
+		afterEach(function(){
+			httpMock.verifyWasFulfilled();
+		});
+
+		it('should allow cache busting', function( done ){
+			var first,
+				second;
+
+			httpMock.expect('/test/dog').respond([
+				{ id: 1, type: 'dog' },
+				{ id: 3, type: 'dog' },
+				{ id: 6, type: 'dog' }
+			]);
+
+			httpMock.expect('/test/dog').respond([
+				{ id: 1, type: 'dog' },
+				{ id: 3, type: 'dog' },
+				{ id: 6, type: 'dog' },
+				{ id: 7, type: 'dog' }
+			]);
+
+			table.select({type:'dog'}).then(function( res ){
+				expect( res.data.length ).toBe( 3 );
+
+				return table.select({type:'dog'},{cached:false}).then(function( res ){
+					expect( res.data.length ).toBe( 4 );
+
+					done();
+				});
+			}).catch( (ex) => {
+				console.log( ex.fileName, ex.lineNumber );
+				console.log( ex.message );
+				console.log( ex );
+			});
+		});
+	});
+
+	describe('table joining', function(){
 		var table,
 			table2,
 			table3;

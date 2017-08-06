@@ -222,10 +222,10 @@ class Table {
 	}
 
 	// all
-	all( obj ){
-		if ( !this.$all ){
+	all( obj, options ){
+		if ( !this.$all || (options&&options.cached === false) ){
 			this.$all = new Promise( ( resolve, reject ) => {
-				this.connector.all( obj ).then(
+				this.connector.all( obj, null, options ).then(
 					( res ) => {
 						try{
 							consume( this, res );
@@ -328,50 +328,68 @@ class Table {
 	}
 
 	// select
-	select( qry, fn, hash ){
+	select( qry, options ){
 		var op,
-			filter = new Filter( fn || qry, hash ),
-			selections = this._selections,
-			t = selections[filter.hash];
+			rtn,
+			filter,
+			selection,
+			selections = this._selections;
 		
-		if ( t ){
-			t.count++;
-
-			return t.filter;
+		if ( !options ){
+			options = {};
 		}
 
-		if ( this.$all ){
-			t = this.$all;
-		}else if ( this.connector.search ){
-			t = this.connector.search( qry ).then(( res ) => {
+		filter = new Filter( options.fn || qry, options.hash );
+		selection = selections[filter.hash];
+
+		if ( selection && options.cached !== false ){
+			selection.count++;
+
+			return selection.filter;
+		}
+
+		if ( this.connector.search ){
+			rtn = this.connector.search(
+				qry, // variables
+				null, // no datum to send
+				options // allow more fine tuned management
+			).then(( res ) => {
 				consume( this, res );
 			});
 		}else{
-			t = this.all( qry );
+			rtn = this.all( qry, options );
 		}
 
-		selections[filter.hash] = op = {
-			filter: t.then(() => {
-				var res = this.collection.filter( ( datum ) => {
-						return filter.go( this.$datum(datum) );
-					}),
-					disconnect = res.$disconnect;
+		if ( selection ){
+			selection.count++;
 
-				res.$disconnect = function(){
-					op.count--;
+			return rtn.then(function(){
+				return selection.filter;
+			});
+		}else{
+			selections[filter.hash] = op = {
+				filter: rtn.then(() => {
+					var res = this.collection.filter( ( datum ) => {
+							return filter.go( this.$datum(datum) );
+						}),
+						disconnect = res.$disconnect;
 
-					if ( !op.count ){
-						selections[filter.hash] = null;
-						disconnect();
-					}
-				};
+					res.$disconnect = function(){
+						op.count--;
 
-				return res;
-			}),
-			count: 1
-		};
+						if ( !op.count ){
+							selections[filter.hash] = null;
+							disconnect();
+						}
+					};
 
-		return op.filter;
+					return res;
+				}),
+				count: 1
+			};
+
+			return op.filter;
+		}
 	}
 }
 
