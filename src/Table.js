@@ -6,14 +6,6 @@ var bmoor = require('bmoor'),
 	Promise = require('es6-promise').Promise,
 	Collection = require('bmoor-data').Collection;
 
-function consume( table, res ){
-	var i, c;
-
-	for( i = 0, c = res.length; i < c; i++ ){
-		table.set( res[i] );
-	}
-}
-
 class Table {
 	/* 
 	* name : the name of your table
@@ -42,6 +34,10 @@ class Table {
 		if ( !ops.proxy ){
 			ops.proxy = Proxy;
 		}
+
+		this.preload = ops.preload || function(){
+			return Promise.resolve(true);
+		};
 
 		schema.register( name, this );
 
@@ -90,18 +86,28 @@ class Table {
 
 		this.name = name;
 		this.connector = ops.connector;
+		
+		this.proxy = ops.proxy;
+		this.proxySettings = ops.proxySettings;
+
+		if ( ops.partialList ){
+			this.gotten = true;
+		}
+
+		this.reset();
+	}
+
+	reset(){
 		this.collection = new Collection();
 		this.index = this.collection.index( this.$id );
 		this._selections = {};
-		
-		this.proxy = ops.proxy;
-		this.join = ops.join;
 
-		if ( ops.partialList ){
+		if ( this.gotten ){
 			this.gotten = {};
 		}
 	}
 
+	// no promise routes
 	find( obj ){
 		return this.index.get( this.$id(obj) );
 	}
@@ -114,7 +120,7 @@ class Table {
 			if( t ){
 				t.merge( delta || obj );
 			}else{
-				t = new (this.proxy)( obj, this.join );
+				t = new (this.proxy)( obj, this.proxySettings );
 
 				this.collection.add( t );
 			}
@@ -142,161 +148,11 @@ class Table {
 		return t.ref;
 	}
 
-	_get( obj ){
-		return this.connector.read( this.$encode(obj) )
-			.then( ( res ) => { return this._set( res ); });
-	}
+	consume( arr ){
+		var i, c;
 
-	// get
-	get( obj ){
-		var t = this.find( obj );
-		
-		if ( t ){
-			if ( this.gotten && !this.gotten[this.$id(obj)] ){
-				return this._get( obj );
-			}else{
-				return Promise.resolve( t );
-			}
-		}else{
-			return this._get( obj );
-		}
-	}
-
-	getMany( arr ){
-		var rtn,
-			all = [],
-			req = [];
-
-		// reduce the list using gotten
-		if ( this.gotten ){
-			arr.forEach( ( r ) => {
-				var t = this.$id(r);
-
-				all.push( t );
-
-				if ( !this.gotten[t] ){
-					req.push( this.$encode(r) );
-				}
-			});
-		}else{
-			arr.forEach( ( r ) => {
-				var t = this.$id(r);
-
-				all.push( t );
-
-				if ( !this.index.get(t) ){
-					req.push( this.$encode(r) );
-				}
-			});
-		}
-
-		if ( req.length ){
-			// this works because I can assume id was defined for 
-			// the feed
-			if ( this.connector.readMany ){
-				rtn = this.connector.readMany( req )
-			}else{
-				// The feed doesn't have readMany, so many reads will work
-				req.forEach( ( id, i ) => {
-					req[i] = this.connector.read( id );
-				});
-				rtn = Promise.all( req );
-			}
-
-			rtn.then( ( res ) => {
-				res.forEach( ( r ) => {
-					this._set( r );
-				})
-			});
-		}else{
-			rtn = Promise.resolve( true ); // nothing to do
-		}
-
-		return rtn.then( () => {
-			all.forEach( ( id, i ) => {
-				all[i] = this.index.get( id );
-			});
-
-			return all;
-		});
-	}
-
-	// all
-	all( obj, options ){
-		if ( !this.$all || (options&&options.cached === false) ){
-			this.$all = new Promise( ( resolve, reject ) => {
-				this.connector.all( obj, null, options ).then(
-					( res ) => {
-						try{
-							consume( this, res );
-							resolve( this.collection );
-						}catch( ex ){
-							reject( ex );
-						}
-					}
-				);
-			});
-		}
-
-		return this.$all;
-	}
-
-	// insert
-	insert( obj ){
-		var t = this.find( obj );
-
-		if ( t ){
-			throw new Error(
-				'This already exists ' +
-				JSON.stringify( obj )
-			);
-		}else{
-			return this.connector.create( obj ).then( ( res ) => {
-				var proxy = this.set( res ).ref;
-
-				proxy.merge( obj );
-
-				return proxy;
-			});
-		}
-	}
-
-	// update
-	// delta is optional
-	update( from, delta ){
-		var t,
-			wasProxy = false;
-
-		if ( from instanceof P ){
-			wasProxy = true;
-
-			t = from;
-			from = t.getDatum();
-		}else{
-			from = this.$encode( from );
-			t = this.find( from );
-		}
-
-		if ( !delta ){
-			delta = t.getChanges();
-		}
-
-		if ( t ){
-			return this.connector.update( from, delta )
-				.then( ( res ) => {
-					t.merge( delta );
-
-					if ( bmoor.isObject(res) ){
-						t.merge( res );
-					}
-
-					return res;
-				});
-		}else{
-			throw new Error(
-				'Can not update that which does not exist' +
-				JSON.stringify( from )
-			);	
+		for( i = 0, c = arr.length; i < c; i++ ){
+			this.set( arr[i] );
 		}
 	}
 
@@ -308,88 +164,257 @@ class Table {
 		return t;
 	}
 
-	// delete
-	delete( obj ){
-		var t = this.find( obj );
+	// -- get
+	get( obj, options ){
+		var fetch = ( obj ) => {
+			return this.connector.read( this.$encode(obj), null, options )
+				.then( ( res ) => { return this._set( res ); });
+		};
 
-		if ( t ){
-			return this.connector.delete( this.$encode(obj) )
-				.then( ( res ) => {
-					this.del( obj );
-
-					return res;
-				});
-		}else{
-			throw new Error(
-				'Can not delete that which does not exist' +
-				JSON.stringify( obj )
-			);	
-		}
+		return this.preload( 'get' ).then( () => {
+			var t = this.find( obj );
+			
+			if ( t ){
+				if ( this.gotten && !this.gotten[this.$id(obj)] ){
+					return fetch( obj );
+				}else{
+					return t;
+				}
+			}else{
+				return fetch( obj );
+			}
+		});
 	}
 
-	// select
-	select( qry, options ){
-		var op,
-			rtn,
-			filter,
-			selection,
-			selections = this._selections;
-		
-		if ( !options ){
-			options = {};
-		}
+	// -- getMany
+	getMany( arr, options ){
+		return this.preload( 'get-many' ).then( () => {
+			var rtn,
+				all = [],
+				req = [];
 
-		filter = new Filter( options.fn || qry, options.hash );
-		selection = selections[filter.hash];
+			// reduce the list using gotten
+			if ( this.gotten ){
+				arr.forEach( ( r ) => {
+					var t = this.$id(r);
 
-		if ( selection && options.cached !== false ){
-			selection.count++;
+					all.push( t );
 
-			return selection.filter;
-		}
+					if ( !this.gotten[t] ){
+						req.push( this.$encode(r) );
+					}
+				});
+			}else{
+				arr.forEach( ( r ) => {
+					var t = this.$id(r);
 
-		if ( this.connector.search ){
-			rtn = this.connector.search(
-				qry, // variables
-				null, // no datum to send
-				options // allow more fine tuned management
-			).then(( res ) => {
-				consume( this, res );
+					all.push( t );
+
+					if ( !this.index.get(t) ){
+						req.push( this.$encode(r) );
+					}
+				});
+			}
+
+			if ( req.length ){
+				// this works because I can assume id was defined for 
+				// the feed
+				if ( this.connector.readMany ){
+					rtn = this.connector.readMany( req, null, options );
+				}else{
+					// The feed doesn't have readMany, so many reads will work
+					req.forEach( ( id, i ) => {
+						req[i] = this.connector.read( id, null, options );
+					});
+					rtn = Promise.all( req );
+				}
+
+				rtn.then( ( res ) => {
+					res.forEach( ( r ) => {
+						this._set( r );
+					});
+				});
+			}else{
+				rtn = Promise.resolve( true ); // nothing to do
+			}
+
+			return rtn.then( () => {
+				all.forEach( ( id, i ) => {
+					all[i] = this.index.get( id );
+				});
+
+				return all;
 			});
-		}else{
-			rtn = this.all( qry, options );
-		}
+		});
+	}
 
-		if ( selection ){
-			selection.count++;
+	// -- all
+	// all returns back the whole collection.  Allowing obj for dynamic
+	// urls
+	all( obj, options ){
+		return this.preload( 'all' ).then( () => {
+			if ( !this.$all || (options&&options.cached === false) ){
+				this.$all = this.connector.all( obj, null, options ).then( (res) => {
+					this.consume( res );
+					
+					return this.collection;
+				});
+			}
 
-			return rtn.then(function(){
-				return selection.filter;
-			});
-		}else{
-			selections[filter.hash] = op = {
-				filter: rtn.then(() => {
-					var res = this.collection.filter( ( datum ) => {
-							return filter.go( this.$datum(datum) );
-						}),
-						disconnect = res.$disconnect;
+			return this.$all;
+		});
+	}
 
-					res.$disconnect = function(){
-						op.count--;
+	// -- insert
+	insert( obj, options ){
+		return this.preload( 'insert' ).then( () => {
+			var t = this.find( obj );
 
-						if ( !op.count ){
-							selections[filter.hash] = null;
-							disconnect();
+			if ( t ){
+				throw new Error(
+					'This already exists ' +
+					JSON.stringify( obj )
+				);
+			}else{
+				return this.connector.create( obj, obj, options ).then( ( res ) => {
+					var proxy = this.set( res ).ref;
+
+					proxy.merge( obj );
+
+					return proxy;
+				});
+			}
+		});
+	}
+
+	// -- update
+	// delta is optional
+	update( from, delta, options ){
+		return this.preload( 'update' ).then( () => {
+			var t,
+				wasProxy = false;
+
+			if ( from instanceof P ){
+				wasProxy = true;
+
+				t = from;
+				from = t.getDatum();
+			}else{
+				from = this.$encode( from );
+				t = this.find( from );
+			}
+
+			if ( !delta ){
+				delta = t.getChanges();
+			}
+
+			if ( t ){
+				return this.connector.update( from, delta, options )
+					.then( ( res ) => {
+						t.merge( delta );
+
+						if ( bmoor.isObject(res) ){
+							t.merge( res );
 						}
-					};
 
-					return res;
-				}),
-				count: 1
-			};
+						return res;
+					});
+			}else{
+				throw new Error(
+					'Can not update that which does not exist' +
+					JSON.stringify( from )
+				);	
+			}
+		});
+	}
 
-			return op.filter;
-		}
+	// -- delete
+	delete( obj, options ){
+		return this.preload( 'delete' ).then( () => {
+			var t = this.find( obj );
+
+			if ( t ){
+				return this.connector.delete( this.$encode(obj), null, options )
+					.then( ( res ) => {
+						this.del( obj );
+
+						return res;
+					});
+			}else{
+				throw new Error(
+					'Can not delete that which does not exist' +
+					JSON.stringify( obj )
+				);	
+			}
+
+		});
+	}
+
+	// -- select
+	select( qry, options ){
+		return this.preload( 'select' ).then( () => {
+			var op,
+				rtn,
+				filter,
+				selection,
+				selections = this._selections;
+			
+			if ( !options ){
+				options = {};
+			}
+
+			filter = new Filter( options.fn || qry, options.hash );
+			selection = selections[filter.hash];
+
+			if ( selection && options.cached !== false ){
+				selection.count++;
+
+				return selection.filter;
+			}
+
+			if ( this.connector.search ){
+				rtn = this.connector.search(
+					qry, // variables
+					null, // no datum to send
+					options // allow more fine tuned management
+				).then( (res) => {
+					this.consume( res );
+				});
+			}else{
+				rtn = this.all( qry, options );
+			}
+
+			if ( selection ){
+				selection.count++;
+
+				return rtn.then(function(){
+					return selection.filter;
+				});
+			}else{
+				selections[filter.hash] = op = {
+					filter: rtn.then(() => {
+						var res = this.collection.filter( ( datum ) => {
+								return filter.go( this.$datum(datum) );
+							}),
+							disconnect = res.$disconnect;
+
+						res.$disconnect = function(){
+							op.count--;
+
+							if ( !op.count ){
+								selections[filter.hash] = null;
+								disconnect();
+							}
+						};
+
+						return res;
+					}),
+					count: 1
+				};
+
+				return op.filter;
+			}
+		});
 	}
 }
 

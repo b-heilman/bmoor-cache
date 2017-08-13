@@ -422,7 +422,7 @@ describe('bmoor-cache::Table', function(){
 					create: '/test/create',
 					update: '/test/update/{{id}}'
 				}),
-				join: {
+				proxySettings: {
 					'test-2': {
 						field: 'value2',
 						table: 'test2'
