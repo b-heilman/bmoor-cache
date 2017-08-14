@@ -3,10 +3,10 @@ var P = require('bmoor-data').object.Proxy,
 	schema = require('./Schema.js');
 
 // { join: {table:'', field} }
-class Proxy extends P {
+class JoinableProxy extends P {
 	constructor( datum, settings ){
 		super( datum );
-
+		
 		this.joins = {};
 		this.settings = settings;
 	}
@@ -30,4 +30,4 @@ class Proxy extends P {
 	}
 }
 
-module.exports = Proxy;
+module.exports = JoinableProxy;

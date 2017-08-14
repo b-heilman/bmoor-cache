@@ -17,18 +17,39 @@ class Mockery{
 				table = schema.check( name );
 
 			if ( mock && table && !this.previous[name] ){
-				let old = table.preload;
+				let prev = {
+						preload: table.preload,
+						search: table.connector.search,
+						intercept: table.connector.all.$settings.intercept
+					};
 
-				table.preload = this.makeStub( old );
+				table.preload = this.makeStub( prev.preload );
 
-				this.previous[name] = {
-					preload: old,
-					search: table.connector.search,
-					intercept: table.connector.all.$settings.intercept
-				};
-
-				table.connector.search = null;
+				table.connector.search = null; // force search through all
 				table.connector.all.$settings.intercept = mock.all;
+			
+				if ( table.connector.create && mock.create ){
+					prev.create = table.connector.create.$settings.intercept;
+					table.connector.create.$settings.intercept = function( datum, ctx ){
+						return mock.create( datum, ctx.$args );
+					};
+				}
+
+				if ( table.connector.update ){
+					prev.update = table.connector.update.$settings.intercept;
+					table.connector.update.$settings.intercept = function( datum, ctx ){
+						return mock.update( datum, ctx.$args );
+					};
+				}
+
+				if ( table.connector.delete ){
+					prev.delete = table.connector.delete.$settings.intercept;
+					table.connector.delete.$settings.intercept = function( datum, ctx ){
+						return mock.delete( datum, ctx.$args );
+					};
+				}
+
+				this.previous[name] = prev;
 			}
 		}
 	}

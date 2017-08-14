@@ -121,7 +121,6 @@ class Table {
 				t.merge( delta || obj );
 			}else{
 				t = new (this.proxy)( obj, this.proxySettings );
-
 				this.collection.add( t );
 			}
 
@@ -184,6 +183,17 @@ class Table {
 				return fetch( obj );
 			}
 		});
+	}
+
+	// --- get : cache busting
+	refresh( obj, options ){
+		if ( !options ){
+			options = {};
+		}
+
+		options.cached = false;
+
+		return this.get( obj, options );
 	}
 
 	// -- getMany
