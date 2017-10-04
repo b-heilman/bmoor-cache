@@ -19,12 +19,6 @@ class Table {
 		var parser,
 			id = ops.id;
 
-		if ( !ops.connector ){
-			throw new Error(
-				'bmoor-comm::Table requires a connector'
-			);
-		}
-
 		if ( !ops.id ){
 			throw new Error(
 				'bmoor-comm::Table requires a id field of function'
@@ -54,13 +48,13 @@ class Table {
 					return qry;
 				}else{
 					t = {};
-					t[id] = qry;
+					bmoor.set(t,id,qry);
 					return t;
 				}
 			};
 			parser = function( qry ){
 				if ( bmoor.isObject(qry) ){
-					return qry[id];
+					return bmoor.get(qry,id);
 				}else{
 					return qry;
 				}

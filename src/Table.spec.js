@@ -5,6 +5,30 @@ describe('bmoor-cache::Table', function(){
 		Table = require('./Table.js'),
 		httpMock = new (require('bmoor-comm').testing.Requestor)();
 
+	describe('manaul mode', function(){
+		var table;
+
+		beforeEach(function(){
+			table = new Table('test',{
+				id: 'foo.bar',
+				proxy: Proxy
+			});
+		});
+
+		it('should allow adding a complex object', function(){
+			var t = {
+					foo: {
+						bar: 1
+					},
+					yay: 'ok'
+				};
+
+			table.set( t );
+
+			expect( table.find( 1 ).getDatum() ).toBe( t );
+		});
+	});
+
 	describe('simple requests', function(){
 		var table;
 
