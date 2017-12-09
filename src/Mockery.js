@@ -10,6 +10,12 @@ class Mockery{
 		this.mocks[ table ] = ops;
 	}
 
+	mock( mock, method ){
+		return function( datum, ctx ){
+			return mock[method]( datum, ctx.$args );
+		};
+	}
+
 	enable(){
 		for( let i = 0, c = arguments.length; i < c; i++ ){
 			let name = arguments[i],
@@ -30,23 +36,17 @@ class Mockery{
 			
 				if ( table.connector.create && mock.create ){
 					prev.create = table.connector.create.$settings.intercept;
-					table.connector.create.$settings.intercept = function( datum, ctx ){
-						return mock.create( datum, ctx.$args );
-					};
+					table.connector.create.$settings.intercept = this.mock(mock,'create');
 				}
 
 				if ( table.connector.update ){
 					prev.update = table.connector.update.$settings.intercept;
-					table.connector.update.$settings.intercept = function( datum, ctx ){
-						return mock.update( datum, ctx.$args );
-					};
+					table.connector.update.$settings.intercept = this.mock(mock,'update');
 				}
 
 				if ( table.connector.delete ){
 					prev.delete = table.connector.delete.$settings.intercept;
-					table.connector.delete.$settings.intercept = function( datum, ctx ){
-						return mock.delete( datum, ctx.$args );
-					};
+					table.connector.delete.$settings.intercept = this.mock(mock,'delete');
 				}
 
 				this.previous[name] = prev;

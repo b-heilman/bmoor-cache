@@ -42,13 +42,11 @@ function buildFilter( obj ){
 class Filter {
 
 	constructor( ops, hash ){
-		var t;
-
 		if ( bmoor.isFunction(ops) ){
 			this.go = ops;
 			this.hash = hash;
 		}else if ( bmoor.isObject(ops) ){
-			t = buildFilter( ops );
+			let t = buildFilter( ops );
 
 			this.go = t.fn;
 			this.hash = t.index;

@@ -1,18 +1,22 @@
-var P = require('bmoor-data').object.Proxy,
-	bmoor = require('bmoor'),
-	schema = require('./Schema.js');
+var bmoor = require('bmoor'),
+	schema = require('./Schema.js'),
+	DataProxy = require('bmoor-data').object.Proxy;
 
 // { join: {table:'', field} }
-class JoinableProxy extends P {
+class JoinableProxy extends DataProxy {
 	constructor( datum, settings ){
 		super( datum );
 		
+		if ( this.$normalize ){
+			this.$normalize(this);
+		}
+
 		this.joins = {};
 		this.settings = settings;
 	}
 
 	join( joinName ){
-		var join = this.settings[joinName];
+		var join = this.settings.joins[joinName];
 
 		if ( !this.joins[joinName] && join ){
 			let table = schema.check( join.table );

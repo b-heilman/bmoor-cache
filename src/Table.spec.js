@@ -437,7 +437,7 @@ describe('bmoor-cache::Table', function(){
 			table3;
 
 		beforeEach(function(){
-			table = new Table('test1',{
+			table = new Table('test3',{
 				id: 'id',
 				connector: new Feed({
 					all: '/test/all',
@@ -447,13 +447,15 @@ describe('bmoor-cache::Table', function(){
 					update: '/test/update/{{id}}'
 				}),
 				proxySettings: {
-					'test-2': {
-						field: 'value2',
-						table: 'test2'
-					},
-					'test-3': {
-						field: 'value3',
-						table: 'test3'
+					joins: {
+						'test-2': {
+							field: 'value2',
+							table: 'test2'
+						},
+						'test-3': {
+							field: 'value3',
+							table: 'test3'
+						}
 					}
 				}
 			});
@@ -529,6 +531,68 @@ describe('bmoor-cache::Table', function(){
 				console.log( ex.fileName, ex.lineNumber );
 				console.log( ex.message );
 				console.log( ex );
+			});
+		});
+	});
+	
+	describe('table normalization', function(){
+		var table;
+
+		beforeEach(function(){
+			table = new Table('normalize',{
+				id: 'id',
+				connector: new Feed({
+					all: '/test/all'
+				}),
+				normalize: function( obj ){
+					if ( obj.id ){
+						obj.id = parseInt(obj.id)
+					}
+
+					if ( obj.other ){
+						obj.other = parseInt(obj.other);
+					}
+				}
+			});
+
+			httpMock.enable();
+		});
+
+		afterEach(function(){
+			httpMock.verifyWasFulfilled();
+		});
+
+		it('should use the same normalize method from proxy', function( done ){
+			httpMock.expect('/test/all').respond([{
+				id: 1,
+				value: 'v-1',
+				other: '1'
+			},{
+				id: '2',
+				value: 'v-2',
+				other: 1
+			},{
+				id: 3,
+				value: 'v-3',
+				other: '2'
+			},{
+				id: 4,
+				value: 'v-4',
+				other: '2'
+			}]);
+
+			table.select({other:1})
+			.then(function( res ){
+				expect( res.data.map(( d ) => d.getDatum().value) )
+				.toEqual(['v-1','v-2']);
+
+				table.select({other:2})
+				.then(function( res ){
+					expect( res.data.map(( d ) => d.getDatum().value) )
+					.toEqual(['v-3','v-4']);
+
+					done();
+				});
 			});
 		});
 	});

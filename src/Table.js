@@ -1,9 +1,9 @@
 var bmoor = require('bmoor'),
-	P = require('bmoor-data').object.Proxy,
 	Proxy = require('./Proxy.js'),
 	schema = require('./Schema.js'),
 	Filter = require('./Filter.js'),
 	Promise = require('es6-promise').Promise,
+	DataProxy = require('bmoor-data').object.Proxy,
 	Collection = require('bmoor-data').Collection;
 
 class Table {
@@ -19,12 +19,15 @@ class Table {
 		var parser,
 			id = ops.id;
 
+		schema.register( name, this );
+
 		if ( !ops.id ){
 			throw new Error(
 				'bmoor-comm::Table requires a id field of function'
 			);
 		}
 
+		// If performance matters, use bmoor-data's Proxy
 		if ( !ops.proxy ){
 			ops.proxy = Proxy;
 		}
@@ -33,7 +36,7 @@ class Table {
 			return Promise.resolve(true);
 		};
 
-		schema.register( name, this );
+		this.normalize = ops.normalize || function( datum ){};
 
 		if ( bmoor.isFunction( id ) ){
 			this.$encode = function( qry ){
@@ -67,7 +70,7 @@ class Table {
 		}
 
 		this.$datum = function( obj ){
-			if ( obj instanceof P ){
+			if ( obj instanceof DataProxy ){
 				obj = obj.getDatum();
 			}
 
@@ -112,9 +115,14 @@ class Table {
 
 		if ( id ){
 			if( t ){
+				obj = delta || obj;
+				this.normalize( obj );
+
 				t.merge( delta || obj );
 			}else{
+				this.normalize( obj );
 				t = new (this.proxy)( obj, this.proxySettings );
+
 				this.collection.add( t );
 			}
 
@@ -298,7 +306,7 @@ class Table {
 			var t,
 				wasProxy = false;
 
-			if ( from instanceof P ){
+			if ( from instanceof DataProxy ){
 				wasProxy = true;
 
 				t = from;
@@ -367,7 +375,9 @@ class Table {
 				options = {};
 			}
 
-			filter = new Filter( options.fn || qry, options.hash );
+			this.normalize( qry );
+
+			filter = new Filter( options.fn || qry, options.hash, this.$normalize );
 			selection = selections[filter.hash];
 
 			if ( selection && options.cached !== false ){
@@ -423,5 +433,4 @@ class Table {
 }
 
 Table.schema = schema;
-
 module.exports = Table;
