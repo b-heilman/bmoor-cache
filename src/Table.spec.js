@@ -111,6 +111,23 @@ describe('bmoor-cache::Table', function(){
 			});
 		});
 
+		it('should allow a read to batch to many', function( done ){
+			httpMock.expect('/test?id[]=10&id[]=20').respond([
+				{ id: 10 },
+				{ id: 20 }
+			]);
+
+			Promise.all([
+				table.get({id:10},{batch:0}),
+				table.get({id:20},{batch:0})
+			]).then(function( d ){
+				expect( d[0].getDatum().id ).toBe( 10 );
+				expect( d[1].getDatum().id ).toBe( 20 );
+
+				done();
+			}).catch( ex => {console.log( ex.message); console.log( ex );} );
+		});
+		
 		describe('all requests', function(){
 			it('should cache a all request, and not need a matching read', function( done ){
 				var all = [

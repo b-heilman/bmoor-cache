@@ -81,25 +81,38 @@ var bmoorCache =
 
 	function buildFilter( obj ){
 		var fn,
-			flat = bmoor.object.implode( obj );
+			flat = bmoor.object.implode( obj ),
+			values = [];
 
-		Object.keys( flat ).forEach(function( path ){
+		Object.keys( flat ).sort().forEach(function( path ){
+			var v = flat[path];
+
 			fn = stackFilter(
 				fn,
 				bmoor.makeGetter(path),
-				flat[path]
+				v
 			);
+
+			values.push( path+'='+v );
 		});
 
-		return fn;
+		return {
+			fn: fn,
+			index: values.join(';')
+		};
 	}
 
 	class Filter {
-		constructor( ops ){
+
+		constructor( ops, hash ){
 			if ( bmoor.isFunction(ops) ){
 				this.go = ops;
+				this.hash = hash;
 			}else if ( bmoor.isObject(ops) ){
-				this.go = buildFilter( ops );
+				let t = buildFilter( ops );
+
+				this.go = t.fn;
+				this.hash = t.index;
 			}else{
 				throw new Error(
 					'I can not build a Filter out of '+typeof(ops)
@@ -109,6 +122,7 @@ var bmoorCache =
 	}
 
 	module.exports = Filter;
+
 
 /***/ }),
 /* 3 */
@@ -1927,19 +1941,12 @@ var bmoorCache =
 /***/ (function(module, exports, __webpack_require__) {
 
 	var bmoor = __webpack_require__(3),
-		Proxy = __webpack_require__(19).object.Proxy,
+		Proxy = __webpack_require__(19),
 		schema = __webpack_require__(17),
 		Filter = __webpack_require__(2),
-		Promise = __webpack_require__(32).Promise,
-		Collection = __webpack_require__(19).Collection;
-
-	function consume( table, res ){
-		var i, c;
-
-		for( i = 0, c = res.length; i < c; i++ ){
-			table.set( res[i] );
-		}
-	}
+		Promise = __webpack_require__(33).Promise,
+		DataProxy = __webpack_require__(20).object.Proxy,
+		Collection = __webpack_require__(20).Collection;
 
 	class Table {
 		/* 
@@ -1948,18 +1955,13 @@ var bmoorCache =
 		* <required>
 		* - connector : bmoor-comm.connector object
 		* - id
-		* - merge : fn( to, from )
 		* - proxy : proxy to apply to all elements
 		*/
 		constructor( name, ops ){
 			var parser,
 				id = ops.id;
 
-			if ( !ops.connector ){
-				throw new Error(
-					'bmoor-comm::Table requires a connector'
-				);
-			}
+			schema.register( name, this );
 
 			if ( !ops.id ){
 				throw new Error(
@@ -1967,13 +1969,16 @@ var bmoorCache =
 				);
 			}
 
-			if ( !( ops.proxy || ops.merge ) ){
-				throw new Error(
-					'bmoor-comm::Table requires a merge field for collisions'
-				);
+			// If performance matters, use bmoor-data's Proxy
+			if ( !ops.proxy ){
+				ops.proxy = Proxy;
 			}
 
-			schema.register( name, this );
+			this.preload = ops.preload || function(){
+				return Promise.resolve(true);
+			};
+
+			this.normalize = ops.normalize || function(){};
 
 			if ( bmoor.isFunction( id ) ){
 				this.$encode = function( qry ){
@@ -1988,13 +1993,13 @@ var bmoorCache =
 						return qry;
 					}else{
 						t = {};
-						t[id] = qry;
+						bmoor.set(t,id,qry);
 						return t;
 					}
 				};
 				parser = function( qry ){
 					if ( bmoor.isObject(qry) ){
-						return qry[id];
+						return bmoor.get(qry,id);
 					}else{
 						return qry;
 					}
@@ -2007,7 +2012,7 @@ var bmoorCache =
 			}
 
 			this.$datum = function( obj ){
-				if ( obj instanceof Proxy ){
+				if ( obj instanceof DataProxy ){
 					obj = obj.getDatum();
 				}
 
@@ -2020,17 +2025,28 @@ var bmoorCache =
 
 			this.name = name;
 			this.connector = ops.connector;
-			this.collection = new Collection();
-			this.index = this.collection.index( this.$id );
 			
-			this._proxy = ops.proxy;
-			this._merge = ops.merge;
+			this.proxy = ops.proxy;
+			this.proxySettings = ops.proxySettings;
 
 			if ( ops.partialList ){
+				this.gotten = true;
+			}
+
+			this.reset();
+		}
+
+		reset(){
+			this.collection = new Collection();
+			this.index = this.collection.index( this.$id );
+			this._selections = {};
+
+			if ( this.gotten ){
 				this.gotten = {};
 			}
 		}
 
+		// no promise routes
 		find( obj ){
 			return this.index.get( this.$id(obj) );
 		}
@@ -2041,17 +2057,13 @@ var bmoorCache =
 
 			if ( id ){
 				if( t ){
-					if ( t instanceof Proxy ){
-						t.merge( delta || obj );
-					}else{
-						this._merge( t, delta || obj );
-					}
+					obj = delta || obj;
+					this.normalize( obj );
+
+					t.merge( delta || obj );
 				}else{
-					if ( this._proxy ){
-						t = new (this._proxy)( obj );
-					}else{
-						t = obj;
-					}
+					this.normalize( obj );
+					t = new (this.proxy)( obj, this.proxySettings );
 
 					this.collection.add( t );
 				}
@@ -2067,108 +2079,23 @@ var bmoorCache =
 			}
 		}
 
+		// Used to check if that datum has been specifically fetched
 		_set( obj ){
-			return new Promise( ( resolve, reject ) => {
-				try{
-					resolve( this.set(obj).ref );
-				}catch( ex ){
-					reject( ex );
-				}
-			});
-		}
+			var t = this.set(obj);
 
-		_get( obj ){
-			return this.connector.read( this.$encode(obj) )
-				.then( ( res ) => {
-					var t = this._set( res );
-
-					t.then( ( d ) => {
-						if ( this.gotten ){
-							this.gotten[ d.id ] = true;
-						}
-					});
-
-					return t;
-				});
-		}
-
-		// get
-		get( obj ){
-			var t = this.find( obj );
-			
-			// how do I handle the object cacheing out?
-			if ( t ){
-				if ( this.gotten && !this.gotten[this.$id(obj)] ){
-					return this._get( obj );
-				}else{
-					return Promise.resolve( t );
-				}
-			}else{
-				return this._get( obj );
-			}
-		}
-
-		// all
-		all( obj ){
-			if ( !this.$all ){
-				this.$all = new Promise( ( resolve, reject ) => {
-					this.connector.all( obj ).then(
-						( res ) => {
-							try{
-								consume( this, res );
-								resolve( this.collection );
-							}catch( ex ){
-								reject( ex );
-							}
-						}
-					);
-				});
+			// TODO : I might want to time out the gotten cache
+			if ( this.gotten ){
+				this.gotten[ t.id ] = true;
 			}
 
-			return this.$all;
+			return t.ref;
 		}
 
-		// insert
-		insert( obj ){
-			var t = this.find( obj );
+		consume( arr ){
+			var i, c;
 
-			if ( t ){
-				throw new Error(
-					'This already exists ' +
-					JSON.stringify( obj )
-				);
-			}else{
-				return this.connector.create( obj ).then( ( res ) => {
-					return this._set( bmoor.isObject(res) ? res : obj );
-				});
-			}
-		}
-
-		// update
-		// delta is optional
-		update( from, delta, ignoreResult ){
-			var t;
-
-			from = this.$encode( from );
-			t = this.find( from );
-
-			if ( t ){
-				return this.connector.update( from, delta )
-					.then( ( res ) => {
-						if ( !ignoreResult ){
-							this.set( 
-								from, 
-								bmoor.isObject(res) ? res : delta 
-							);
-						}
-
-						return res;
-					});
-			}else{
-				throw new Error(
-					'Can not update that which does not exist' +
-					JSON.stringify( from )
-				);	
+			for( i = 0, c = arr.length; i < c; i++ ){
+				this.set( arr[i] );
 			}
 		}
 
@@ -2180,51 +2107,299 @@ var bmoorCache =
 			return t;
 		}
 
-		// delete
-		delete( obj ){
-			var t = this.find( obj );
+		// -- get
+		get( obj, options ){
+			var fetch;
 
-			if ( t ){
-				return this.connector.delete( this.$encode(obj) )
-					.then( ( res ) => {
-						this.del( obj );
+			if ( options && 'batch' in options ){
+				if ( this.batched ){
+					this.batched.list.push( obj ); 
+				}else{
+					this.batched = {
+						list: [ obj ],
+						promise: new Promise(( resolve, reject ) => {
+							setTimeout( () => {
+								var batched = this.batched;
 
-						return res;
-					});
+								this.batched = null;
+
+								return this.getMany( batched.list )
+								.then( resolve, reject );
+							}, options.batch);
+						})
+					};
+				}
+
+				let res = this.batched.promise.then( () => this.find(obj) );
+				fetch = () => res;
 			}else{
-				throw new Error(
-					'Can not delete that which does not exist' +
-					JSON.stringify( obj )
-				);	
+				fetch = () => {
+					return this.connector.read( this.$encode(obj), null, options )
+						.then( ( res ) => { return this._set( res ); });
+				};
 			}
+
+			return this.preload( 'get' ).then( () => {
+				var t = this.find( obj );
+				
+				if ( t ){
+					if ( this.gotten && !this.gotten[this.$id(obj)] ){
+						return fetch( obj );
+					}else{
+						return t;
+					}
+				}else{
+					return fetch( obj );
+				}
+			});
 		}
 
-		// select
-		select( qry, fn ){
-			var t,
-				filter = new Filter( fn || qry );
-			
-			if ( this.$all ){
-				t = this.$all;
-			}else if ( this.connector.search ){
-				// TODO : Feed doesn't currently support search
-				t = this.connector.search( qry ).then(( res ) => {
-					consume( this, res );
-				});
-			}else{
-				t = this.all( qry );
+		// --- get : cache busting
+		refresh( obj, options ){
+			if ( !options ){
+				options = {};
 			}
 
-			return t.then(() => {
-				return this.collection.filter( ( datum ) => {
-					return filter.go( this.$datum(datum) );
+			options.cached = false;
+
+			return this.get( obj, options );
+		}
+
+		// -- getMany
+		getMany( arr, options ){
+			return this.preload( 'get-many' ).then( () => {
+				var rtn,
+					all = [],
+					req = [];
+
+				// reduce the list using gotten
+				if ( this.gotten ){
+					arr.forEach( ( r ) => {
+						var t = this.$id(r);
+
+						all.push( t );
+
+						if ( !this.gotten[t] ){
+							req.push( this.$encode(r) );
+						}
+					});
+				}else{
+					arr.forEach( ( r ) => {
+						var t = this.$id(r);
+
+						all.push( t );
+
+						if ( !this.index.get(t) ){
+							req.push( this.$encode(r) );
+						}
+					});
+				}
+
+				if ( req.length ){
+					// this works because I can assume id was defined for 
+					// the feed
+					if ( this.connector.readMany ){
+						rtn = this.connector.readMany( req, null, options );
+					}else{
+						// The feed doesn't have readMany, so many reads will work
+						req.forEach( ( id, i ) => {
+							req[i] = this.connector.read( id, null, options );
+						});
+						rtn = Promise.all( req );
+					}
+
+					rtn.then( ( res ) => {
+						res.forEach( ( r ) => {
+							this._set( r );
+						});
+					});
+				}else{
+					rtn = Promise.resolve( true ); // nothing to do
+				}
+
+				return rtn.then( () => {
+					all.forEach( ( id, i ) => {
+						all[i] = this.index.get( id );
+					});
+
+					return all;
 				});
+			});
+		}
+
+		// -- all
+		// all returns back the whole collection.  Allowing obj for dynamic
+		// urls
+		all( obj, options ){
+			return this.preload( 'all' ).then( () => {
+				if ( !this.$all || (options&&options.cached === false) ){
+					this.$all = this.connector.all( obj, null, options ).then( (res) => {
+						this.consume( res );
+						
+						return this.collection;
+					});
+				}
+
+				return this.$all;
+			});
+		}
+
+		// -- insert
+		insert( obj, options ){
+			return this.preload( 'insert' ).then( () => {
+				var t = this.find( obj );
+
+				if ( t ){
+					throw new Error(
+						'This already exists ' +
+						JSON.stringify( obj )
+					);
+				}else{
+					return this.connector.create( obj, obj, options ).then( ( res ) => {
+						var proxy = this.set( res ).ref;
+
+						proxy.merge( obj );
+
+						return proxy;
+					});
+				}
+			});
+		}
+
+		// -- update
+		// delta is optional
+		update( from, delta, options ){
+			return this.preload( 'update' ).then( () => {
+				var t,
+					wasProxy = false;
+
+				if ( from instanceof DataProxy ){
+					wasProxy = true;
+
+					t = from;
+					from = t.getDatum();
+				}else{
+					from = this.$encode( from );
+					t = this.find( from );
+				}
+
+				if ( !delta ){
+					delta = t.getChanges();
+				}
+
+				if ( t ){
+					return this.connector.update( from, delta, options )
+						.then( ( res ) => {
+							t.merge( delta );
+
+							if ( bmoor.isObject(res) ){
+								t.merge( res );
+							}
+
+							return res;
+						});
+				}else{
+					throw new Error(
+						'Can not update that which does not exist' +
+						JSON.stringify( from )
+					);	
+				}
+			});
+		}
+
+		// -- delete
+		delete( obj, options ){
+			return this.preload( 'delete' ).then( () => {
+				var t = this.find( obj );
+
+				if ( t ){
+					return this.connector.delete( this.$encode(obj), null, options )
+						.then( ( res ) => {
+							this.del( obj );
+
+							return res;
+						});
+				}else{
+					throw new Error(
+						'Can not delete that which does not exist' +
+						JSON.stringify( obj )
+					);	
+				}
+
+			});
+		}
+
+		// -- select
+		select( qry, options ){
+			return this.preload( 'select' ).then( () => {
+				var op,
+					rtn,
+					filter,
+					selection,
+					selections = this._selections;
+				
+				if ( !options ){
+					options = {};
+				}
+
+				this.normalize( qry );
+
+				filter = new Filter( options.fn || qry, options.hash );
+				selection = selections[filter.hash];
+
+				if ( selection && options.cached !== false ){
+					selection.count++;
+
+					return selection.filter;
+				}
+
+				if ( this.connector.search ){
+					rtn = this.connector.search(
+						qry, // variables
+						null, // no datum to send
+						options // allow more fine tuned management
+					).then( (res) => {
+						this.consume( res );
+					});
+				}else{
+					rtn = this.all( qry, options );
+				}
+
+				if ( selection ){
+					selection.count++;
+
+					return rtn.then(function(){
+						return selection.filter;
+					});
+				}else{
+					selections[filter.hash] = op = {
+						filter: rtn.then(() => {
+							var res = this.collection.filter( ( datum ) => {
+									return filter.go( this.$datum(datum) );
+								}),
+								disconnect = res.$disconnect;
+
+							res.$disconnect = function(){
+								op.count--;
+
+								if ( !op.count ){
+									selections[filter.hash] = null;
+									disconnect();
+								}
+							};
+
+							return res;
+						}),
+						count: 1
+					};
+
+					return op.filter;
+				}
 			});
 		}
 	}
 
 	Table.schema = schema;
-
 	module.exports = Table;
 
 
@@ -2232,20 +2407,63 @@ var bmoorCache =
 /* 19 */
 /***/ (function(module, exports, __webpack_require__) {
 
+	var bmoor = __webpack_require__(3),
+		schema = __webpack_require__(17),
+		DataProxy = __webpack_require__(20).object.Proxy;
+
+	// { join: {table:'', field} }
+	class JoinableProxy extends DataProxy {
+		constructor( datum, settings ){
+			super( datum );
+			
+			if ( this.$normalize ){
+				this.$normalize(this);
+			}
+
+			this.joins = {};
+			this.settings = settings;
+		}
+
+		join( joinName ){
+			var join = this.settings.joins[joinName];
+
+			if ( !this.joins[joinName] && join ){
+				let table = schema.check( join.table );
+
+				if ( table ){
+					let datum = this.getDatum(),
+						target = bmoor.get( datum, join.field );
+
+					this.joins[joinName] = bmoor.isArray(target) ?
+						table.getMany( target ) : table.get( target );
+				}
+			}
+
+			return this.joins[joinName];
+		}
+	}
+
+	module.exports = JoinableProxy;
+
+
+/***/ }),
+/* 20 */
+/***/ (function(module, exports, __webpack_require__) {
+
 	module.exports = {
-		Feed: __webpack_require__(20),
-		Pool: __webpack_require__(21),
-		Collection: __webpack_require__(29),
+		Feed: __webpack_require__(21),
+		Pool: __webpack_require__(22),
+		Collection: __webpack_require__(30),
 		stream: {
-			Converter: __webpack_require__(30)
+			Converter: __webpack_require__(31)
 		},
 		object: {
-			Proxy: __webpack_require__(31)
+			Proxy: __webpack_require__(32)
 		}
 	};
 
 /***/ }),
-/* 20 */
+/* 21 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var bmoor = __webpack_require__(3),
@@ -2297,14 +2515,14 @@ var bmoorCache =
 	module.exports = Feed;
 
 /***/ }),
-/* 21 */
+/* 22 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var bmoor = __webpack_require__(3),
 		Eventing = bmoor.Eventing,
 		getUid = bmoor.data.getUid,
 		makeGetter = bmoor.makeGetter,
-		Mapper = __webpack_require__(22).Mapper;
+		Mapper = __webpack_require__(23).Mapper;
 
 	class Pool extends Eventing {
 
@@ -2351,20 +2569,20 @@ var bmoorCache =
 	module.exports = Pool;
 
 /***/ }),
-/* 22 */
+/* 23 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	module.exports = {
-		encode: __webpack_require__(23),
-		Mapper: __webpack_require__(24),
-		Mapping: __webpack_require__(26),
-		Path: __webpack_require__(25),
-		translate: __webpack_require__(27),
-		validate: __webpack_require__(28)
+		encode: __webpack_require__(24),
+		Mapper: __webpack_require__(25),
+		Mapping: __webpack_require__(27),
+		Path: __webpack_require__(26),
+		translate: __webpack_require__(28),
+		validate: __webpack_require__(29)
 	};
 
 /***/ }),
-/* 23 */
+/* 24 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var bmoor = __webpack_require__(3),
@@ -2373,6 +2591,10 @@ var bmoorCache =
 	function parse( def, path, val ){
 		var method;
 
+		if (val === null || val === undefined) {
+			return;
+		}
+		
 		if ( bmoor.isArray(val) ){
 			method = 'array';
 		}else{
@@ -2438,12 +2660,12 @@ var bmoorCache =
 
 
 /***/ }),
-/* 24 */
+/* 25 */
 /***/ (function(module, exports, __webpack_require__) {
 
-	var Path = __webpack_require__(25),
+	var Path = __webpack_require__(26),
 		bmoor = __webpack_require__(3),
-		Mapping = __webpack_require__(26);
+		Mapping = __webpack_require__(27);
 
 	function stack( fn, old ){
 		if ( old ){
@@ -2508,7 +2730,7 @@ var bmoorCache =
 
 
 /***/ }),
-/* 25 */
+/* 26 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var bmoor = __webpack_require__(3),
@@ -2594,10 +2816,10 @@ var bmoorCache =
 
 
 /***/ }),
-/* 26 */
+/* 27 */
 /***/ (function(module, exports, __webpack_require__) {
 
-	var Path = __webpack_require__(25);
+	var Path = __webpack_require__(26);
 
 	function all( next ){
 		return function( toObj, fromObj ){
@@ -2770,7 +2992,7 @@ var bmoorCache =
 
 
 /***/ }),
-/* 27 */
+/* 28 */
 /***/ (function(module, exports) {
 
 	function go( from, root, info ){
@@ -2846,10 +3068,10 @@ var bmoorCache =
 
 
 /***/ }),
-/* 28 */
+/* 29 */
 /***/ (function(module, exports, __webpack_require__) {
 
-	var Path = __webpack_require__(25);
+	var Path = __webpack_require__(26);
 
 	var tests = [
 			function( def, v, errors ){
@@ -2887,11 +3109,11 @@ var bmoorCache =
 	module.exports = validate;
 
 /***/ }),
-/* 29 */
+/* 30 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var bmoor = __webpack_require__(3),
-		Feed = __webpack_require__(20),
+		Feed = __webpack_require__(21),
 		setUid = bmoor.data.setUid;
 
 	class Collection extends Feed {
@@ -3040,7 +3262,7 @@ var bmoorCache =
 
 
 /***/ }),
-/* 30 */
+/* 31 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var bmoor = __webpack_require__(3),
@@ -3159,13 +3381,13 @@ var bmoorCache =
 	module.exports = Converter;
 
 /***/ }),
-/* 31 */
+/* 32 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var bmoor = __webpack_require__(3),
 		Eventing = bmoor.Eventing;
 
-	function makeMask( target, seed ){
+	function makeMask( target, override ){
 		var mask = bmoor.isArray(target) ?
 			target.slice(0) : Object.create( target );
 		
@@ -3174,17 +3396,17 @@ var bmoorCache =
 			if ( bmoor.isObject(target[k]) ){
 				mask[k] = makeMask( 
 					target[k],
-					bmoor.isObject(seed) ? seed[k] : null
+					bmoor.isObject(override) ? override[k] : null
 				);
 			}
 		});
 
-		if ( seed ){
-			Object.keys(seed).forEach( ( k ) => {
-				if ( !mask[k] || 
-					!(bmoor.isObject(mask[k]) && bmoor.isObject(seed))
-				){
-					mask[k] = seed[k];
+		if ( override ){
+			Object.keys(override).forEach(function( k ){
+				var bothObj = bmoor.isObject(mask[k]) && bmoor.isObject(override[k]);
+
+				if ( !(k in mask) || !bothObj ){
+					mask[k] = override[k];
 				}
 			});
 		}
@@ -3236,6 +3458,8 @@ var bmoorCache =
 		constructor( obj ){
 			super();
 
+			this.expose( obj );
+
 			this.getDatum = function(){
 				return obj;
 			};
@@ -3245,16 +3469,16 @@ var bmoorCache =
 			return this.getDatum()[ path ];
 		}
 
-		getMask( seed ){
-			if ( !this.mask || seed ){
-				this.mask = makeMask( this.getDatum(), seed );
+		getMask( override ){
+			if ( !this.mask || override ){
+				this.mask = makeMask( this.getDatum(), override );
 			}
 
 			return this.mask;
 		}
 
 		$( path ){
-			return this.getMask()[ path ];
+			return bmoor.get( this.getMask(), path );
 		}
 
 		getChanges(){
@@ -3274,7 +3498,11 @@ var bmoorCache =
 
 			this.mask = null;
 			this.trigger( 'update', delta );
+
+			this.expose( delta );
 		}
+
+		expose(){}
 
 		trigger(){
 			// always make the datum be the last argument passed
@@ -3292,7 +3520,7 @@ var bmoorCache =
 
 
 /***/ }),
-/* 32 */
+/* 33 */
 /***/ (function(module, exports, __webpack_require__) {
 
 	var require;/* WEBPACK VAR INJECTION */(function(process, global) {/*!
@@ -3431,7 +3659,7 @@ var bmoorCache =
 	function attemptVertx() {
 	  try {
 	    var r = require;
-	    var vertx = __webpack_require__(34);
+	    var vertx = __webpack_require__(35);
 	    vertxNext = vertx.runOnLoop || vertx.runOnContext;
 	    return useVertxTimer();
 	  } catch (e) {
@@ -4454,10 +4682,10 @@ var bmoorCache =
 	})));
 	//# sourceMappingURL=es6-promise.map
 
-	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(33), (function() { return this; }())))
+	/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(34), (function() { return this; }())))
 
 /***/ }),
-/* 33 */
+/* 34 */
 /***/ (function(module, exports) {
 
 	// shim for using process in browser
@@ -4647,7 +4875,7 @@ var bmoorCache =
 
 
 /***/ }),
-/* 34 */
+/* 35 */
 /***/ (function(module, exports) {
 
 	/* (ignored) */

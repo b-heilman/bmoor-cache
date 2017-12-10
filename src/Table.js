@@ -36,7 +36,7 @@ class Table {
 			return Promise.resolve(true);
 		};
 
-		this.normalize = ops.normalize || function( datum ){};
+		this.normalize = ops.normalize || function(){};
 
 		if ( bmoor.isFunction( id ) ){
 			this.$encode = function( qry ){
@@ -167,10 +167,35 @@ class Table {
 
 	// -- get
 	get( obj, options ){
-		var fetch = ( obj ) => {
-			return this.connector.read( this.$encode(obj), null, options )
-				.then( ( res ) => { return this._set( res ); });
-		};
+		var fetch;
+
+		if ( options && 'batch' in options ){
+			if ( this.batched ){
+				this.batched.list.push( obj ); 
+			}else{
+				this.batched = {
+					list: [ obj ],
+					promise: new Promise(( resolve, reject ) => {
+						setTimeout( () => {
+							var batched = this.batched;
+
+							this.batched = null;
+
+							return this.getMany( batched.list )
+							.then( resolve, reject );
+						}, options.batch);
+					})
+				};
+			}
+
+			let res = this.batched.promise.then( () => this.find(obj) );
+			fetch = () => res;
+		}else{
+			fetch = () => {
+				return this.connector.read( this.$encode(obj), null, options )
+					.then( ( res ) => { return this._set( res ); });
+			};
+		}
 
 		return this.preload( 'get' ).then( () => {
 			var t = this.find( obj );
@@ -377,7 +402,7 @@ class Table {
 
 			this.normalize( qry );
 
-			filter = new Filter( options.fn || qry, options.hash, this.$normalize );
+			filter = new Filter( options.fn || qry, options.hash );
 			selection = selections[filter.hash];
 
 			if ( selection && options.cached !== false ){
