@@ -15,22 +15,70 @@ class JoinableProxy extends DataProxy {
 		this.settings = settings;
 	}
 
+	inflate(){
+		var keys = Object.keys( this.settings.joins ),
+			req = [];
+
+		Object.keys( this.settings.joins ).forEach( (join) => {
+			req.push( this.join(join) );
+		});
+
+		return Promise.all( req ).then( (res) => {
+			var rtn = {};
+
+			keys.forEach(function( key, i ){
+				rtn[ key ] = res[i];
+			});
+
+			return rtn;
+		});
+	}
+
 	join( joinName ){
 		var join = this.settings.joins[joinName];
 
-		if ( !this.joins[joinName] && join ){
-			let table = schema.check( join.table );
-
-			if ( table ){
-				let datum = this.getDatum(),
-					target = bmoor.get( datum, join.field );
-
-				this.joins[joinName] = bmoor.isArray(target) ?
-					table.getMany( target ) : table.get( target );
+		if ( !bmoor.get(this.joins,joinName)  && join ){
+			if ( join.right ){
+				this.rightJoin(
+					join.table,
+					this.$( join.right ),
+					join.field,
+					joinName
+				);
+			}else{
+				this.leftJoin(
+					join.table,
+					this.$( join.field ),
+					joinName
+				);
 			}
 		}
 
-		return this.joins[joinName];
+		return bmoor.get(this.joins,joinName);
+	}
+
+	leftJoin( tableName, search, setTo ){
+		var table = schema.check( tableName );
+
+		if ( table ){
+			let matches = bmoor.isArray(search) ?
+				table.getMany( search ) : table.get( search );
+
+			bmoor.set( this.joins, setTo, matches );
+		}else{
+			throw new Error(tableName+' is not a known table');
+		}
+	}
+
+	rightJoin( tableName, myId, foreignKey, setTo ){
+		var table = schema.check( tableName );
+
+		if ( table ){
+			let qry = {[foreignKey]: myId};
+			bmoor.set( this.joins, setTo, table.select(qry) );
+		}else{
+			throw new Error(tableName+' is not a known table');
+		}
 	}
 }
 

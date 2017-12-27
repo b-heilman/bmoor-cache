@@ -82,12 +82,12 @@ describe('bmoor-cache::Table', function(){
 			]);
 
 			table.getMany([1,2]).then(function( d ){
-				expect( d.length ).toBe( 2 );
-				expect( d[0].getDatum().id ).toBe( 1 );
-				expect( d[1].getDatum().id ).toBe( 2 );
+				expect( d.data.length ).toBe( 2 );
+				expect( d.data[0].getDatum().id ).toBe( 1 );
+				expect( d.data[1].getDatum().id ).toBe( 2 );
 
 				table.getMany([1,2]).then(function( d ){
-					expect( d.length ).toBe( 2 );
+					expect( d.data.length ).toBe( 2 );
 					done();
 				});
 			});
@@ -100,12 +100,12 @@ describe('bmoor-cache::Table', function(){
 			]);
 
 			table.getMany([{id:1},{id:2}]).then(function( d ){
-				expect( d.length ).toBe( 2 );
-				expect( d[0].getDatum().id ).toBe( 1 );
-				expect( d[1].getDatum().id ).toBe( 2 );
+				expect( d.data.length ).toBe( 2 );
+				expect( d.data[0].getDatum().id ).toBe( 1 );
+				expect( d.data[1].getDatum().id ).toBe( 2 );
 
 				table.getMany([1,2]).then(function( d ){
-					expect( d.length ).toBe( 2 );
+					expect( d.data.length ).toBe( 2 );
 					done();
 				});
 			});
@@ -335,7 +335,6 @@ describe('bmoor-cache::Table', function(){
 
 				table.select({type:'dog'}).then(function( res ){
 					expect( res.data.length ).toBe( 3 );
-
 					first = res;
 				});
 
@@ -343,11 +342,10 @@ describe('bmoor-cache::Table', function(){
 					expect( res.data.length ).toBe( 3 );
 
 					second = res;
-
 					expect( first ).toBe( second );
 
-					first.$disconnect();
-					second.$disconnect();
+					first.disconnect();
+					second.disconnect();
 
 					table.select({type:'dog'}).then(function( res ){
 						expect( second ).not.toBe( res );
@@ -451,7 +449,8 @@ describe('bmoor-cache::Table', function(){
 	describe('table joining', function(){
 		var table,
 			table2,
-			table3;
+			table3,
+			table4;
 
 		beforeEach(function(){
 			table = new Table('test3',{
@@ -472,6 +471,11 @@ describe('bmoor-cache::Table', function(){
 						'test-3': {
 							field: 'value3',
 							table: 'test3'
+						},
+						'test-4': {
+							right: 'id',
+							field: 'foreignId',
+							table: 'test4'
 						}
 					}
 				}
@@ -499,6 +503,15 @@ describe('bmoor-cache::Table', function(){
 				})
 			});
 
+			table4 = new Table('test4',{
+				id: 'id',
+				connector: new Feed({
+					query: {
+						'foreignId': '/test4/{{foreignId}}'
+					}
+				})
+			});
+
 			httpMock.enable();
 		});
 
@@ -506,7 +519,7 @@ describe('bmoor-cache::Table', function(){
 			httpMock.verifyWasFulfilled();
 		});
 
-		it('should cache a read request', function( done ){
+		beforeEach(function(){
 			httpMock.expect('/test/1234').respond({
 				id: 1234,
 				foo: 'bar',
@@ -527,6 +540,22 @@ describe('bmoor-cache::Table', function(){
 				type: 'test3'
 			}]);
 
+			httpMock.expect('/test4/1234').respond([{
+				id: 20,
+				foreignId: 1234,
+				type: 'test4'
+			},{
+				id: 30,
+				foreignId: 1234,
+				type: 'test4'
+			},{
+				id: 40,
+				foreignId: 1234,
+				type: 'test4'
+			}]);
+		});
+
+		it('should cache a read request', function( done ){
 			table.get(1234).then(function( d ){
 				expect( d.getDatum().foo ).toBe( 'bar' );
 				
@@ -538,10 +567,35 @@ describe('bmoor-cache::Table', function(){
 						expect( d.getDatum().type ).toBe( 'test2' );
 					}),
 					d.join('test-3').then(function( d ){
-						expect( d.length ).toBe( 2 );
-						expect( d[0].getDatum().type ).toBe( 'test3' );
+						expect( d.data.length ).toBe( 2 );
+						expect( d.data[0].getDatum().type ).toBe( 'test3' );
+					}),
+					d.join('test-4').then(function( d ){
+						expect( d.data.length ).toBe( 3 );
+						expect( d.data[0].getDatum().type ).toBe( 'test4' );
 					})
 				]).then(function(){
+					done();
+				});
+			}).catch( (ex) => {
+				console.log( ex.fileName, ex.lineNumber );
+				console.log( ex.message );
+				console.log( ex );
+			});
+		});
+
+		it('should work with inflate', function( done ){
+			table.get(1234).then(function( d ){
+				expect( d.getDatum().foo ).toBe( 'bar' );
+				
+				return d.inflate()
+				.then(function( res ){
+					expect( res['test-2'].getDatum().type ).toBe( 'test2' );
+					expect( res['test-3'].data.length ).toBe( 2 );
+					expect( res['test-3'].data[0].getDatum().type ).toBe( 'test3' );
+					expect( res['test-4'].data.length ).toBe( 3 );
+					expect( res['test-4'].data[0].getDatum().type ).toBe( 'test4' );
+				}).then(function(){
 					done();
 				});
 			}).catch( (ex) => {

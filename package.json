@@ -14,9 +14,9 @@
     "build": "gulp build"
   },
   "dependencies": {
-    "bmoor": "~0.4.0",
-    "bmoor-data": "~0.4.2",
-    "bmoor-comm": "~0.4.5",
+    "bmoor": "~0.4.1",
+    "bmoor-data": "~0.4.5",
+    "bmoor-comm": "~0.4.9",
     "es6-promise": "4.1.0"
   },
   "devDependencies": {

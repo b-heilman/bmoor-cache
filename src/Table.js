@@ -276,11 +276,13 @@ class Table {
 			}
 
 			return rtn.then( () => {
+				var collection = new Collection();
+
 				all.forEach( ( id, i ) => {
-					all[i] = this.index.get( id );
+					collection.data[i] = this.index.get( id );
 				});
 
-				return all;
+				return collection;
 			});
 		});
 	}
@@ -435,9 +437,9 @@ class Table {
 						var res = this.collection.filter( ( datum ) => {
 								return filter.go( this.$datum(datum) );
 							}),
-							disconnect = res.$disconnect;
+							disconnect = res.disconnect;
 
-						res.$disconnect = function(){
+						res.disconnect = function(){
 							op.count--;
 
 							if ( !op.count ){

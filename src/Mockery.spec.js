@@ -98,8 +98,8 @@ describe('bmoor-cache::Mockery', function(){
 		mockery.enable('mock-test');
 
 		table.getMany([{id:1},{id:2}]).then(function( res ){
-			expect( res.length ).toBe( 2 );
-			expect( res[1].getDatum().foo ).toBe( 'bar2' );
+			expect( res.data.length ).toBe( 2 );
+			expect( res.data[1].getDatum().foo ).toBe( 'bar2' );
 
 			done();
 		}).catch(function( ex ){
