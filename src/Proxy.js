@@ -4,22 +4,22 @@ var bmoor = require('bmoor'),
 
 // { join: {table:'', field} }
 class JoinableProxy extends DataProxy {
-	constructor( datum, settings ){
+	constructor( datum, table ){
 		super( datum );
 		
-		if ( this.$normalize ){
-			this.$normalize(this);
-		}
+		this.getTable = function(){ // prevent circular 
+			return table;
+		};
 
 		this.joins = {};
-		this.settings = settings;
 	}
 
 	inflate(){
-		var keys = Object.keys( this.settings.joins ),
+		var joins = this.getTable().joins,
+			keys = Object.keys( joins ),
 			req = [];
 
-		Object.keys( this.settings.joins ).forEach( (join) => {
+		Object.keys( joins ).forEach( (join) => {
 			req.push( this.join(join) );
 		});
 
@@ -34,48 +34,65 @@ class JoinableProxy extends DataProxy {
 		});
 	}
 
-	join( joinName ){
-		var join = this.settings.joins[joinName];
+	join( tableName ){
+		var type,
+			field,
+			rtn = this.joins[tableName],
+			myTable = this.getTable(),
+			joins = myTable.joins,
+			join = joins[tableName];
 
-		if ( !bmoor.get(this.joins,joinName)  && join ){
-			if ( join.right ){
-				this.rightJoin(
-					join.table,
-					this.$( join.right ),
-					join.field,
-					joinName
-				);
+		if ( !rtn ){ 
+			if ( bmoor.isObject(join) ){
+				type = join.type;
+				field = join.field;
 			}else{
-				this.leftJoin(
-					join.table,
-					this.$( join.field ),
-					joinName
-				);
+				type = 'oneway';
+				field = join;
 			}
+
+			rtn = this[type+'Join'](
+				tableName,
+				this.$( field )
+			);
+
+			this.joins[tableName] = rtn;
+		}else if ( !join ){
+			throw new Error('Missing join to table: '+tableName);
 		}
 
-		return bmoor.get(this.joins,joinName);
+		return rtn;
 	}
 
-	leftJoin( tableName, search, setTo ){
-		var table = schema.check( tableName );
+	onewayJoin( tableName, searchValue ){
+		var foreignTable = schema.check( tableName );
 
-		if ( table ){
-			let matches = bmoor.isArray(search) ?
-				table.getMany( search ) : table.get( search );
-
-			bmoor.set( this.joins, setTo, matches );
+		if ( foreignTable ){
+			return bmoor.isArray(searchValue) ?
+				foreignTable.getMany( searchValue ) : 
+				foreignTable.get( searchValue );
 		}else{
 			throw new Error(tableName+' is not a known table');
 		}
 	}
 
-	rightJoin( tableName, myId, foreignKey, setTo ){
-		var table = schema.check( tableName );
+	twowayJoin( tableName, searchValue ){
+		var foreignTable = schema.check( tableName );
 
-		if ( table ){
-			let qry = {[foreignKey]: myId};
-			bmoor.set( this.joins, setTo, table.select(qry) );
+		if ( foreignTable ){
+			let myTable = this.getTable().name,
+				foreignJoin = foreignTable.joins[ myTable ];
+
+			if ( foreignJoin ){
+				let foreignKey = bmoor.isString(foreignJoin) ? 
+					foreignJoin : foreignJoin.field;
+
+				return foreignTable.select( {[foreignKey]: searchValue} );
+			}else{
+				throw new Error(
+					`Can not twoway join to ${tableName}, no back join found`
+				);
+			}
 		}else{
 			throw new Error(tableName+' is not a known table');
 		}

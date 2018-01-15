@@ -21,6 +21,13 @@ class Table {
 
 		schema.register( name, this );
 
+		this.name = name;
+		this.connector = ops.connector;
+		
+		this.joins = ops.joins || {};
+		this.proxy = ops.proxy || Proxy;
+		this.proxySettings = ops.proxySettings || {};
+
 		if ( !ops.id ){
 			throw new Error(
 				'bmoor-comm::Table requires a id field of function'
@@ -28,10 +35,6 @@ class Table {
 		}
 
 		// If performance matters, use bmoor-data's Proxy
-		if ( !ops.proxy ){
-			ops.proxy = Proxy;
-		}
-
 		this.preload = ops.preload || function(){
 			return Promise.resolve(true);
 		};
@@ -81,12 +84,6 @@ class Table {
 			return parser( this.$datum(obj) );
 		};
 
-		this.name = name;
-		this.connector = ops.connector;
-		
-		this.proxy = ops.proxy;
-		this.proxySettings = ops.proxySettings;
-
 		if ( ops.partialList ){
 			this.gotten = true;
 		}
@@ -121,7 +118,7 @@ class Table {
 				t.merge( delta || obj );
 			}else{
 				this.normalize( obj );
-				t = new (this.proxy)( obj, this.proxySettings );
+				t = new (this.proxy)( obj, this, this.proxySettings );
 
 				this.collection.add( t );
 			}
