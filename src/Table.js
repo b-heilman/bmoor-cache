@@ -197,14 +197,14 @@ class Table {
 		return this.preload( 'get' ).then( () => {
 			var t = this.find( obj );
 			
-			if ( t ){
+			if ( !t || (options&&options.cached===false) ){
+				return fetch( obj );
+			}else{
 				if ( this.gotten && !this.gotten[this.$id(obj)] ){
 					return fetch( obj );
 				}else{
 					return t;
 				}
-			}else{
-				return fetch( obj );
 			}
 		});
 	}
@@ -289,7 +289,7 @@ class Table {
 	// urls
 	all( obj, options ){
 		return this.preload( 'all' ).then( () => {
-			if ( !this.$all || (options&&options.cached === false) ){
+			if ( !this.$all || (options&&options.cached===false) ){
 				this.$all = this.connector.all( obj, null, options ).then( (res) => {
 					this.consume( res );
 					

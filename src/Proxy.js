@@ -65,7 +65,7 @@ class JoinableProxy extends DataProxy {
 	}
 
 	onewayJoin( tableName, searchValue ){
-		var foreignTable = schema.check( tableName );
+		var foreignTable = schema.get( tableName );
 
 		if ( foreignTable ){
 			return bmoor.isArray(searchValue) ?
@@ -77,7 +77,7 @@ class JoinableProxy extends DataProxy {
 	}
 
 	twowayJoin( tableName, searchValue ){
-		var foreignTable = schema.check( tableName );
+		var foreignTable = schema.get( tableName );
 
 		if ( foreignTable ){
 			let myTable = this.getTable().name,

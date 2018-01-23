@@ -1,6 +1,6 @@
 {
   "name": "bmoor-cache",
-  "version": "0.4.8",
+  "version": "0.4.9",
   "author": "Brian Heilman <das.ist.junk@gmail.com>",
   "description": "Managing data and remote sources",
   "license": "MIT",
@@ -14,9 +14,9 @@
     "build": "gulp build"
   },
   "dependencies": {
-    "bmoor": "~0.4.1",
+    "bmoor": "~0.4.3",
     "bmoor-data": "~0.4.5",
-    "bmoor-comm": "~0.4.9",
+    "bmoor-comm": "~0.4.10",
     "es6-promise": "4.1.0"
   },
   "devDependencies": {

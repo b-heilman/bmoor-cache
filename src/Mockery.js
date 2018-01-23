@@ -20,7 +20,7 @@ class Mockery{
 		for( let i = 0, c = arguments.length; i < c; i++ ){
 			let name = arguments[i],
 				mock = this.mocks[name],
-				table = schema.check( name );
+				table = schema.get( name );
 
 			if ( mock && table && !this.previous[name] ){
 				let prev = {
@@ -72,7 +72,7 @@ class Mockery{
 		for( let i = 0, c = arguments.length; i < c; i++ ){
 			let name = arguments[i],
 				prev = this.previous[name],
-				table = schema.check( name );
+				table = schema.get( name );
 
 			if ( prev && table ){
 				let old = table.preload;
