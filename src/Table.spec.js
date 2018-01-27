@@ -355,9 +355,6 @@ describe('bmoor-cache::Table', function(){
 			});
 
 			it('should allow cache busting selectes', function( done ){
-				var first,
-					second;
-
 				httpMock.expect('/test/all').respond([
 					{ id: 1, type: 'dog' },
 					{ id: 2, type: 'cat' },
@@ -414,9 +411,6 @@ describe('bmoor-cache::Table', function(){
 		});
 
 		it('should allow cache busting', function( done ){
-			var first,
-				second;
-
 			httpMock.expect('/test/dog').respond([
 				{ id: 1, type: 'dog' },
 				{ id: 3, type: 'dog' },
@@ -584,11 +578,11 @@ describe('bmoor-cache::Table', function(){
 				
 				return d.inflate()
 				.then(function( res ){
-					expect( res['test2'].getDatum().type ).toBe( 'test2' );
-					expect( res['test3'].data.length ).toBe( 2 );
-					expect( res['test3'].data[0].getDatum().type ).toBe( 'test3' );
-					expect( res['test4'].data.length ).toBe( 3 );
-					expect( res['test4'].data[0].getDatum().type ).toBe( 'test4' );
+					expect( res.test2.getDatum().type ).toBe( 'test2' );
+					expect( res.test3.data.length ).toBe( 2 );
+					expect( res.test3.data[0].getDatum().type ).toBe( 'test3' );
+					expect( res.test4.data.length ).toBe( 3 );
+					expect( res.test4.data[0].getDatum().type ).toBe( 'test4' );
 				}).then(function(){
 					done();
 				});
@@ -611,7 +605,7 @@ describe('bmoor-cache::Table', function(){
 				}),
 				normalize: function( obj ){
 					if ( obj.id ){
-						obj.id = parseInt(obj.id)
+						obj.id = parseInt(obj.id);
 					}
 
 					if ( obj.other ){

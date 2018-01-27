@@ -1,7 +1,7 @@
 var bmoor = require('bmoor'),
 	Proxy = require('./Proxy.js'),
 	schema = require('./Schema.js'),
-	Filter = require('./Filter.js'),
+	Test = require('bmoor-data').object.Test,
 	Promise = require('es6-promise').Promise,
 	DataProxy = require('bmoor-data').object.Proxy,
 	Collection = require('bmoor-data').Collection;
@@ -391,7 +391,7 @@ class Table {
 		return this.preload( 'select' ).then( () => {
 			var op,
 				rtn,
-				filter,
+				test,
 				selection,
 				selections = this._selections;
 			
@@ -401,8 +401,12 @@ class Table {
 
 			this.normalize( qry );
 
-			filter = new Filter( options.fn || qry, options.hash );
-			selection = selections[filter.hash];
+			test = options instanceof Test ? options :
+				new Test( options.fn || qry, {
+					hash: options.hash,
+					massage: this.$datum
+				});
+			selection = selections[test.hash];
 
 			if ( selection && options.cached !== false ){
 				selection.count++;
@@ -429,18 +433,16 @@ class Table {
 					return selection.filter;
 				});
 			}else{
-				selections[filter.hash] = op = {
+				selections[test.hash] = op = {
 					filter: rtn.then(() => {
-						var res = this.collection.filter( ( datum ) => {
-								return filter.go( this.$datum(datum) );
-							}),
+						var res = this.collection.filter( test ),
 							disconnect = res.disconnect;
 
 						res.disconnect = function(){
 							op.count--;
 
 							if ( !op.count ){
-								selections[filter.hash] = null;
+								selections[test.hash] = null;
 								disconnect();
 							}
 						};

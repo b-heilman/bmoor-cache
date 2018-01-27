@@ -1,5 +1,5 @@
 module.exports = {
-	Filter: require('./src/Filter.js'),
+	Mockery: require('./src/Mockery.js'),
 	Schema: require('./src/Schema.js'),
-	Table: require('./src/Table.js'),
+	Table: require('./src/Table.js')
 };

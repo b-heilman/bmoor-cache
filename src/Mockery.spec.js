@@ -44,7 +44,7 @@ describe('bmoor-cache::Mockery', function(){
 			},
 			delete: function( obj, args ){
 				testHook( obj, args );
-				return 'OK'
+				return 'OK';
 			}
 		});
 	});

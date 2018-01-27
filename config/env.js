@@ -6,9 +6,14 @@ var fs = require('fs'),
 		distDir: 'dist/',
 		demoDir: 'demo/',
 		configDir: 'config/',
-		jsSrc: ['src/**/*.js','!src/**/*.spec.js']
+		jsSrc: ['src/**/*.js','!src/**/*.spec.js'],
+		externals: {
+			'bmoor': 'bmoor',
+			'bmoorData': 'bmoor-data'
+		}
 	};
 
+config.karmaConfig = config.configDir+'karma.conf.js';
 config.demoConfig = config.configDir+'demo.js';
 config.libraryConfig = config.configDir+'library.js';
 config.jsDemo = [config.demoConfig].concat(config.jsSrc);
