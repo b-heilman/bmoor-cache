@@ -1,8 +1,8 @@
 var Feed = require('bmoor-comm').connect.Feed,
-	Table = require('./Table.js'),
-	Mockery = require('./Mockery.js');
+	Table = require('../Table.js'),
+	Wrapper = require('./Wrapper.js');
 
-describe('bmoor-cache::Mockery', function(){
+describe('bmoor-cache/mockery::Wrapper', function(){
 	var table,
 		mockery,
 		testHook;
@@ -19,9 +19,7 @@ describe('bmoor-cache::Mockery', function(){
 				delete: '/test/delete/{{id}}'
 			})
 		});
-		mockery = new Mockery();
-
-		mockery.add( 'mock-test', {
+		mockery = new Wrapper( table, {
 			all: [{
 				id: 1,
 				foo: 'bar'
@@ -50,25 +48,21 @@ describe('bmoor-cache::Mockery', function(){
 	});
 
 	afterEach(function(){
-		mockery.disable( 'mock-test' );
+		mockery.disable();
 	});
 
 	it('should enable and tear down properly', function(){
-		mockery.enable('mock-test');
+		mockery.enable();
 
 		expect( table.connector.all.$settings.intercept ).toBeDefined();
 
-		mockery.disable( 'junk' );
-
-		expect( table.connector.all.$settings.intercept ).toBeDefined();
-
-		mockery.disable( 'junk', 'mock-test' );
+		mockery.disable();
 
 		expect( table.connector.all.$settings.intercept ).toBeUndefined();
 	});
 
 	it('should properly overload all request', function( done ){
-		mockery.enable('mock-test');
+		mockery.enable();
 
 		table.all().then(function( res ){
 			expect( res.data.length ).toBe( 3 );
@@ -82,7 +76,7 @@ describe('bmoor-cache::Mockery', function(){
 	});
 
 	it('should properly overload get request', function( done ){
-		mockery.enable('mock-test');
+		mockery.enable();
 
 		table.get({id:3}).then(function( res ){
 			expect( res.getDatum().foo ).toBe( 'bar3' );
@@ -95,7 +89,7 @@ describe('bmoor-cache::Mockery', function(){
 	});
 
 	it('should properly overload get-many request', function( done ){
-		mockery.enable('mock-test');
+		mockery.enable();
 
 		table.getMany([{id:1},{id:2}]).then(function( res ){
 			expect( res.data.length ).toBe( 2 );
@@ -109,7 +103,7 @@ describe('bmoor-cache::Mockery', function(){
 	});
 
 	it('should properly overload insert request', function( done ){
-		mockery.enable('mock-test');
+		mockery.enable();
 
 		testHook = function( obj ){
 			expect( obj.foo ).toBe( 'bar20' );
@@ -131,7 +125,7 @@ describe('bmoor-cache::Mockery', function(){
 	});
 
 	it('should properly overload update request', function( done ){
-		mockery.enable('mock-test');
+		mockery.enable();
 
 		testHook = function( obj, args ){
 			expect( obj.hello ).toBe( 'world' );
@@ -158,7 +152,7 @@ describe('bmoor-cache::Mockery', function(){
 	});
 
 	it('should properly overload delete request', function( done ){
-		mockery.enable('mock-test');
+		mockery.enable();
 
 		testHook = function( obj, args ){
 			expect( obj ).toBe( null );

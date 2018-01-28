@@ -61,7 +61,7 @@ var bmoorCache =
 /******/ 	__webpack_require__.p = "";
 /******/
 /******/ 	// Load entry module and return exports
-/******/ 	return __webpack_require__(__webpack_require__.s = 8);
+/******/ 	return __webpack_require__(__webpack_require__.s = 9);
 /******/ })
 /************************************************************************/
 /******/ ([
@@ -77,31 +77,22 @@ module.exports = bmoor;
 "use strict";
 
 
-module.exports = __webpack_require__(0).Memory.use('cache-table-schema');
-
-/***/ }),
-/* 2 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
 module.exports = {
-	Feed: __webpack_require__(4),
-	Pool: __webpack_require__(13),
-	Collection: __webpack_require__(19),
+	Feed: __webpack_require__(5),
+	Pool: __webpack_require__(14),
+	Collection: __webpack_require__(20),
 	stream: {
-		Converter: __webpack_require__(20)
+		Converter: __webpack_require__(21)
 	},
 	object: {
-		Proxy: __webpack_require__(21),
-		Test: __webpack_require__(7),
-		Hash: __webpack_require__(6)
+		Proxy: __webpack_require__(22),
+		Test: __webpack_require__(8),
+		Hash: __webpack_require__(7)
 	}
 };
 
 /***/ }),
-/* 3 */
+/* 2 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -199,7 +190,25 @@ var Path = function () {
 module.exports = Path;
 
 /***/ }),
+/* 3 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+module.exports = __webpack_require__(0).Memory.use('cache-table-schema');
+
+/***/ }),
 /* 4 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+module.exports = __webpack_require__(0).Memory.use('cache-mockery-schema');
+
+/***/ }),
+/* 5 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -278,7 +287,7 @@ var Feed = function (_Eventing) {
 module.exports = Feed;
 
 /***/ }),
-/* 5 */
+/* 6 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -288,7 +297,7 @@ var _createClass = function () { function defineProperties(target, props) { for 
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
-var Path = __webpack_require__(3);
+var Path = __webpack_require__(2);
 
 function all(next) {
 	return function (toObj, fromObj) {
@@ -456,7 +465,7 @@ var Mapping = function () {
 module.exports = Mapping;
 
 /***/ }),
-/* 6 */
+/* 7 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -543,7 +552,7 @@ var Hash = function Hash(ops, settings) {
 module.exports = Hash;
 
 /***/ }),
-/* 7 */
+/* 8 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -624,26 +633,13 @@ var Test = function Test(ops, settings) {
 module.exports = Test;
 
 /***/ }),
-/* 8 */
-/***/ (function(module, exports, __webpack_require__) {
-
-"use strict";
-
-
-module.exports = __webpack_require__(9);
-
-/***/ }),
 /* 9 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
 
 
-module.exports = {
-	Mockery: __webpack_require__(10),
-	Schema: __webpack_require__(1),
-	Table: __webpack_require__(11)
-};
+module.exports = __webpack_require__(10);
 
 /***/ }),
 /* 10 */
@@ -652,114 +648,14 @@ module.exports = {
 "use strict";
 
 
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-var schema = __webpack_require__(1);
-
-var Mockery = function () {
-	function Mockery() {
-		_classCallCheck(this, Mockery);
-
-		this.mocks = {};
-		this.previous = {};
-	}
-
-	_createClass(Mockery, [{
-		key: 'add',
-		value: function add(table, ops) {
-			this.mocks[table] = ops;
-		}
-	}, {
-		key: 'mock',
-		value: function mock(_mock, method) {
-			return function (datum, ctx) {
-				return _mock[method](datum, ctx.$args);
-			};
-		}
-	}, {
-		key: 'enable',
-		value: function enable() {
-			for (var i = 0, c = arguments.length; i < c; i++) {
-				var name = arguments[i],
-				    mock = this.mocks[name],
-				    table = schema.get(name);
-
-				if (mock && table && !this.previous[name]) {
-					var prev = {
-						preload: table.preload,
-						search: table.connector.search,
-						intercept: table.connector.all.$settings.intercept
-					};
-
-					table.preload = this.makeStub(prev.preload);
-
-					table.connector.search = null; // force search through all
-					table.connector.all.$settings.intercept = mock.all;
-
-					if (table.connector.create && mock.create) {
-						prev.create = table.connector.create.$settings.intercept;
-						table.connector.create.$settings.intercept = this.mock(mock, 'create');
-					}
-
-					if (table.connector.update) {
-						prev.update = table.connector.update.$settings.intercept;
-						table.connector.update.$settings.intercept = this.mock(mock, 'update');
-					}
-
-					if (table.connector.delete) {
-						prev.delete = table.connector.delete.$settings.intercept;
-						table.connector.delete.$settings.intercept = this.mock(mock, 'delete');
-					}
-
-					this.previous[name] = prev;
-				}
-			}
-		}
-	}, {
-		key: 'makeStub',
-		value: function makeStub(old) {
-			// the idea is to route all requests through all, since all 
-			// should be the simplest thing to stub.  Simplifies queries.
-			return function (method) {
-				var _this = this;
-
-				if (method === 'all') {
-					return old.call(this, method);
-				} else {
-					return this.all().then(function () {
-						return old.call(_this, method);
-					});
-				}
-			};
-		}
-	}, {
-		key: 'disable',
-		value: function disable() {
-			for (var i = 0, c = arguments.length; i < c; i++) {
-				var name = arguments[i],
-				    prev = this.previous[name],
-				    table = schema.get(name);
-
-				if (prev && table) {
-					var old = table.preload;
-
-					table.preload = this.makeStub(old);
-
-					this.previous[name] = null;
-
-					table.connector.search = prev.search;
-					table.connector.all.$settings.intercept = prev.intercept;
-				}
-			}
-		}
-	}]);
-
-	return Mockery;
-}();
-
-module.exports = Mockery;
+module.exports = {
+	mockery: {
+		Wrapper: __webpack_require__(11),
+		Schema: __webpack_require__(4)
+	},
+	Schema: __webpack_require__(3),
+	Table: __webpack_require__(12)
+};
 
 /***/ }),
 /* 11 */
@@ -772,13 +668,112 @@ var _createClass = function () { function defineProperties(target, props) { for 
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
+var schema = __webpack_require__(4);
+
+function makeStub(table, old) {
+	// the idea is to route all requests through all, since all 
+	// should be the simplest thing to stub.  Simplifies queries.
+	return function (method) {
+		if (method === 'all') {
+			return old.call(table, method);
+		} else {
+			return table.all().then(function () {
+				return old.call(table, method);
+			});
+		}
+	};
+}
+
+function makeMock(mock, method) {
+	return function (datum, ctx) {
+		return mock[method](datum, ctx.$args);
+	};
+}
+
+var Wrapper = function () {
+	function Wrapper(table, mock) {
+		_classCallCheck(this, Wrapper);
+
+		this.mock = mock;
+		this.table = table;
+
+		schema.register(table.name, this);
+	}
+
+	_createClass(Wrapper, [{
+		key: 'enable',
+		value: function enable() {
+			if (!this.previous) {
+				var mock = this.mock,
+				    table = this.table,
+				    prev = {
+					preload: table.preload,
+					search: table.connector.search,
+					intercept: table.connector.all.$settings.intercept
+				};
+
+				table.preload = makeStub(table, prev.preload);
+
+				table.connector.search = null; // force search through all
+				table.connector.all.$settings.intercept = mock.all;
+
+				if (table.connector.create && mock.create) {
+					prev.create = table.connector.create.$settings.intercept;
+					table.connector.create.$settings.intercept = makeMock(mock, 'create');
+				}
+
+				if (table.connector.update) {
+					prev.update = table.connector.update.$settings.intercept;
+					table.connector.update.$settings.intercept = makeMock(mock, 'update');
+				}
+
+				if (table.connector.delete) {
+					prev.delete = table.connector.delete.$settings.intercept;
+					table.connector.delete.$settings.intercept = makeMock(mock, 'delete');
+				}
+
+				this.previous = prev;
+			}
+		}
+	}, {
+		key: 'disable',
+		value: function disable() {
+			var prev = this.previous,
+			    table = this.table;
+
+			if (prev) {
+				table.preload = prev.preload;
+				table.connector.search = prev.search;
+				table.connector.all.$settings.intercept = prev.intercept;
+
+				this.previous = null;
+			}
+		}
+	}]);
+
+	return Wrapper;
+}();
+
+module.exports = Wrapper;
+
+/***/ }),
+/* 12 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
 var bmoor = __webpack_require__(0),
-    Proxy = __webpack_require__(12),
-    schema = __webpack_require__(1),
-    Test = __webpack_require__(2).object.Test,
-    Promise = __webpack_require__(22).Promise,
-    DataProxy = __webpack_require__(2).object.Proxy,
-    Collection = __webpack_require__(2).Collection;
+    Proxy = __webpack_require__(13),
+    schema = __webpack_require__(3),
+    Test = __webpack_require__(1).object.Test,
+    Promise = __webpack_require__(23).Promise,
+    DataProxy = __webpack_require__(1).object.Proxy,
+    Collection = __webpack_require__(1).Collection;
 
 var Table = function () {
 	/* 
@@ -1275,7 +1270,7 @@ Table.schema = schema;
 module.exports = Table;
 
 /***/ }),
-/* 12 */
+/* 13 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -1292,8 +1287,8 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
 var bmoor = __webpack_require__(0),
-    schema = __webpack_require__(1),
-    DataProxy = __webpack_require__(2).object.Proxy;
+    schema = __webpack_require__(3),
+    DataProxy = __webpack_require__(1).object.Proxy;
 
 // { join: {table:'', field} }
 
@@ -1404,7 +1399,7 @@ var JoinableProxy = function (_DataProxy) {
 module.exports = JoinableProxy;
 
 /***/ }),
-/* 13 */
+/* 14 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -1422,7 +1417,7 @@ var bmoor = __webpack_require__(0),
     Eventing = bmoor.Eventing,
     getUid = bmoor.data.getUid,
     makeGetter = bmoor.makeGetter,
-    Mapper = __webpack_require__(14).Mapper;
+    Mapper = __webpack_require__(15).Mapper;
 
 var Pool = function (_Eventing) {
 	_inherits(Pool, _Eventing);
@@ -1479,23 +1474,23 @@ var Pool = function (_Eventing) {
 module.exports = Pool;
 
 /***/ }),
-/* 14 */
+/* 15 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
 
 
 module.exports = {
-	encode: __webpack_require__(15),
-	Mapper: __webpack_require__(16),
-	Mapping: __webpack_require__(5),
-	Path: __webpack_require__(3),
-	translate: __webpack_require__(17),
-	validate: __webpack_require__(18)
+	encode: __webpack_require__(16),
+	Mapper: __webpack_require__(17),
+	Mapping: __webpack_require__(6),
+	Path: __webpack_require__(2),
+	translate: __webpack_require__(18),
+	validate: __webpack_require__(19)
 };
 
 /***/ }),
-/* 15 */
+/* 16 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -1577,7 +1572,7 @@ encode.$ops = ops;
 module.exports = encode;
 
 /***/ }),
-/* 16 */
+/* 17 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -1587,9 +1582,9 @@ var _createClass = function () { function defineProperties(target, props) { for 
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
-var Path = __webpack_require__(3),
+var Path = __webpack_require__(2),
     bmoor = __webpack_require__(0),
-    Mapping = __webpack_require__(5);
+    Mapping = __webpack_require__(6);
 
 function stack(fn, old) {
 	if (old) {
@@ -1662,7 +1657,7 @@ var Mapper = function () {
 module.exports = Mapper;
 
 /***/ }),
-/* 17 */
+/* 18 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -1741,7 +1736,7 @@ function encode(schema) {
 module.exports = encode;
 
 /***/ }),
-/* 18 */
+/* 19 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -1749,7 +1744,7 @@ module.exports = encode;
 
 var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol" ? function (obj) { return typeof obj; } : function (obj) { return obj && typeof Symbol === "function" && obj.constructor === Symbol && obj !== Symbol.prototype ? "symbol" : typeof obj; };
 
-var Path = __webpack_require__(3);
+var Path = __webpack_require__(2);
 
 var tests = [function (def, v, errors) {
 	if ((typeof v === 'undefined' ? 'undefined' : _typeof(v)) !== def.type) {
@@ -1785,7 +1780,7 @@ validate.$ops = tests;
 module.exports = validate;
 
 /***/ }),
-/* 19 */
+/* 20 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -1800,9 +1795,9 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
 var bmoor = __webpack_require__(0),
-    Feed = __webpack_require__(4),
-    Hash = __webpack_require__(6),
-    Test = __webpack_require__(7),
+    Feed = __webpack_require__(5),
+    Hash = __webpack_require__(7),
+    Test = __webpack_require__(8),
     setUid = bmoor.data.setUid;
 
 function testStack(old, fn) {
@@ -2220,7 +2215,7 @@ var Collection = function (_Feed) {
 module.exports = Collection;
 
 /***/ }),
-/* 20 */
+/* 21 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2361,7 +2356,7 @@ var Converter = function (_Eventing) {
 module.exports = Converter;
 
 /***/ }),
-/* 21 */
+/* 22 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2540,7 +2535,7 @@ Proxy.getChanges = _getChanges;
 module.exports = Proxy;
 
 /***/ }),
-/* 22 */
+/* 23 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2687,7 +2682,7 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
   function attemptVertx() {
     try {
       var r = require;
-      var vertx = __webpack_require__(25);
+      var vertx = __webpack_require__(26);
       vertxNext = vertx.runOnLoop || vertx.runOnContext;
       return useVertxTimer();
     } catch (e) {
@@ -3708,10 +3703,10 @@ var _typeof = typeof Symbol === "function" && typeof Symbol.iterator === "symbol
   return Promise;
 });
 //# sourceMappingURL=es6-promise.map
-/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(23), __webpack_require__(24)))
+/* WEBPACK VAR INJECTION */}.call(exports, __webpack_require__(24), __webpack_require__(25)))
 
 /***/ }),
-/* 23 */
+/* 24 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3904,7 +3899,7 @@ process.umask = function () {
 };
 
 /***/ }),
-/* 24 */
+/* 25 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3934,7 +3929,7 @@ try {
 module.exports = g;
 
 /***/ }),
-/* 25 */
+/* 26 */
 /***/ (function(module, exports) {
 
 /* (ignored) */
