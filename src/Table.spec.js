@@ -2,6 +2,7 @@ describe('bmoor-cache::Table', function(){
 
 	var Feed = require('bmoor-comm').connect.Feed,
 		Proxy = require('bmoor-data').object.Proxy,
+		CacheProxy = require('./Proxy.js'),
 		Table = require('./Table.js'),
 		httpMock = new (require('bmoor-comm').testing.Requestor)();
 
@@ -449,6 +450,7 @@ describe('bmoor-cache::Table', function(){
 		beforeEach(function(){
 			table = new Table('test1',{
 				id: 'id',
+				proxy: CacheProxy,
 				connector: new Feed({
 					all: '/test/all',
 					read: '/test/{{id}}',
@@ -468,6 +470,7 @@ describe('bmoor-cache::Table', function(){
 
 			table2 = new Table('test2',{
 				id: 'id',
+				proxy: CacheProxy,
 				connector: new Feed({
 					all: '/test2/all',
 					read: '/test2/{{id}}',
@@ -479,6 +482,7 @@ describe('bmoor-cache::Table', function(){
 
 			table3 = new Table('test3',{
 				id: 'id',
+				proxy: CacheProxy,
 				connector: new Feed({
 					all: '/test3/all',
 					read: '/test3/{{id}}',
@@ -490,6 +494,7 @@ describe('bmoor-cache::Table', function(){
 
 			table4 = new Table('test4',{
 				id: 'id',
+				proxy: CacheProxy,
 				connector: new Feed({
 					query: {
 						'foreignId': '/test4/{{foreignId}}'

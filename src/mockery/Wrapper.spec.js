@@ -155,8 +155,8 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 		mockery.enable();
 
 		testHook = function( obj, args ){
-			expect( obj ).toBe( null );
-			expect( args.id ).toBe( 1 );
+			expect( obj ).toEqual( {id:1,foo:'bar'} );
+			expect( args ).toEqual( {id:1,foo:'bar'} );
 		};
 
 		table.delete( {id:1} ).then(function( res ){

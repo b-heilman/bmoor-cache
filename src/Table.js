@@ -1,10 +1,16 @@
 var bmoor = require('bmoor'),
-	Proxy = require('./Proxy.js'),
 	schema = require('./Schema.js'),
 	Test = require('bmoor-data').object.Test,
 	Promise = require('es6-promise').Promise,
-	DataProxy = require('bmoor-data').object.Proxy,
-	Collection = require('bmoor-data').Collection;
+	Proxy = require('bmoor-data').object.Proxy,
+	DefaultProxy = Proxy,
+	DefaultCollection = require('bmoor-data').Collection;
+
+var settings = {
+		Proxy: DefaultProxy,
+		proxySettings: {},
+		Collection: DefaultCollection
+	};
 
 class Table {
 	/* 
@@ -25,8 +31,8 @@ class Table {
 		this.connector = ops.connector;
 		
 		this.joins = ops.joins || {};
-		this.proxy = ops.proxy || Proxy;
-		this.proxySettings = ops.proxySettings || {};
+		this.proxy = ops.proxy || settings.Proxy;
+		this.proxySettings = ops.proxySettings || settings.proxySettings;
 
 		if ( !ops.id ){
 			throw new Error(
@@ -43,14 +49,20 @@ class Table {
 
 		if ( bmoor.isFunction( id ) ){
 			this.$encode = function( qry ){
-				return qry;
+				if ( qry instanceof Proxy ){
+					return qry.getDatum();
+				}else{
+					return qry;
+				}
 			};
 			parser = id;
 		}else if ( bmoor.isString(id) ){
 			this.$encode = function( qry ){
 				var t;
 
-				if ( bmoor.isObject(qry) ){
+				if ( qry instanceof Proxy ){
+					return qry.getDatum();
+				}else if ( bmoor.isObject(qry) ){
 					return qry;
 				}else{
 					t = {};
@@ -73,7 +85,7 @@ class Table {
 		}
 
 		this.$datum = function( obj ){
-			if ( obj instanceof DataProxy ){
+			if ( obj instanceof Proxy ){
 				obj = obj.getDatum();
 			}
 
@@ -92,7 +104,7 @@ class Table {
 	}
 
 	reset(){
-		this.collection = new Collection();
+		this.collection = new (settings.Collection)();
 		this.index = this.collection.index( this.$id );
 		this._selections = {};
 
@@ -273,7 +285,7 @@ class Table {
 			}
 
 			return rtn.then( () => {
-				var collection = new Collection();
+				var collection = new (settings.Collection)();
 
 				all.forEach( ( id, i ) => {
 					collection.data[i] = this.index.get( id );
@@ -327,12 +339,9 @@ class Table {
 	// delta is optional
 	update( from, delta, options ){
 		return this.preload( 'update' ).then( () => {
-			var t,
-				wasProxy = false;
+			var t;
 
-			if ( from instanceof DataProxy ){
-				wasProxy = true;
-
+			if ( from instanceof Proxy ){
 				t = from;
 				from = t.getDatum();
 			}else{
@@ -346,15 +355,15 @@ class Table {
 
 			if ( t ){
 				return this.connector.update( from, delta, options )
-					.then( ( res ) => {
-						t.merge( delta );
+				.then( ( res ) => {
+					t.merge( delta );
 
-						if ( bmoor.isObject(res) ){
-							t.merge( res );
-						}
+					if ( bmoor.isObject(res) ){
+						t.merge( res );
+					}
 
-						return res;
-					});
+					return res;
+				});
 			}else{
 				throw new Error(
 					'Can not update that which does not exist' +
@@ -366,16 +375,22 @@ class Table {
 
 	// -- delete
 	delete( obj, options ){
+		if ( !options ){
+			options = {};
+		}
+
 		return this.preload( 'delete' ).then( () => {
-			var t = this.find( obj );
+			var proxy = this.find( obj );
 
-			if ( t ){
-				return this.connector.delete( this.$encode(obj), null, options )
-					.then( ( res ) => {
-						this.del( obj );
+			if ( proxy ){
+				let datum = proxy.getDatum();
 
-						return res;
-					});
+				return this.connector.delete( datum, datum, options )
+				.then( ( res ) => {
+					this.del( obj );
+
+					return res;
+				});
 			}else{
 				throw new Error(
 					'Can not delete that which does not exist' +
@@ -459,4 +474,6 @@ class Table {
 }
 
 Table.schema = schema;
+Table.settings = settings;
+
 module.exports = Table;
