@@ -1,15 +1,13 @@
-var bmoor = require('bmoor'),
+const bmoor = require('bmoor'),
 	schema = require('./Schema.js'),
 	Test = require('bmoor-data').object.Test,
-	Promise = require('es6-promise').Promise,
-	Proxy = require('bmoor-data').object.Proxy,
-	DefaultProxy = Proxy,
-	DefaultCollection = require('bmoor-data').Collection;
+	DataProxy = require('bmoor-data').object.Proxy,
+	DataCollection = require('bmoor-data').Collection;
 
-var settings = {
-		Proxy: DefaultProxy,
+var defaultSettings = {
+		Proxy: DataProxy,
 		proxySettings: {},
-		Collection: DefaultCollection
+		Collection: DataCollection
 	};
 
 class Table {
@@ -31,8 +29,9 @@ class Table {
 		this.connector = ops.connector;
 		
 		this.joins = ops.joins || {};
-		this.proxy = ops.proxy || settings.Proxy;
-		this.proxySettings = ops.proxySettings || settings.proxySettings;
+		this.proxyClass = ops.proxy || defaultSettings.Proxy;
+		this.proxySettings = ops.proxySettings || defaultSettings.proxySettings;
+		this.collectionClass = ops.collection || defaultSettings.Collection;
 
 		if ( !ops.id ){
 			throw new Error(
@@ -49,7 +48,7 @@ class Table {
 
 		if ( bmoor.isFunction( id ) ){
 			this.$encode = function( qry ){
-				if ( qry instanceof Proxy ){
+				if ( qry instanceof DataProxy ){
 					return qry.getDatum();
 				}else{
 					return qry;
@@ -60,7 +59,7 @@ class Table {
 			this.$encode = function( qry ){
 				var t;
 
-				if ( qry instanceof Proxy ){
+				if ( qry instanceof DataProxy ){
 					return qry.getDatum();
 				}else if ( bmoor.isObject(qry) ){
 					return qry;
@@ -85,7 +84,7 @@ class Table {
 		}
 
 		this.$datum = function( obj ){
-			if ( obj instanceof Proxy ){
+			if ( obj instanceof DataProxy ){
 				obj = obj.getDatum();
 			}
 
@@ -104,7 +103,7 @@ class Table {
 	}
 
 	reset(){
-		this.collection = new (settings.Collection)();
+		this.collection = new (this.collectionClass)();
 		this.index = this.collection.index( this.$id );
 		this._selections = {};
 
@@ -130,7 +129,7 @@ class Table {
 				t.merge( delta || obj );
 			}else{
 				this.normalize( obj );
-				t = new (this.proxy)( obj, this, this.proxySettings );
+				t = new (this.proxyClass)( obj, this, this.proxySettings );
 
 				this.collection.add( t );
 			}
@@ -178,7 +177,11 @@ class Table {
 	get( obj, options ){
 		var fetch;
 
-		if ( options && 'batch' in options ){
+		if ( !options ){
+			options = {};
+		}
+
+		if ( options.batch ){
 			if ( this.batched ){
 				this.batched.list.push( obj ); 
 			}else{
@@ -202,7 +205,13 @@ class Table {
 		}else{
 			fetch = () => {
 				return this.connector.read( this.$encode(obj), null, options )
-					.then( ( res ) => { return this._set( res ); });
+					.then( ( res ) => {
+						if ( options.hook ){
+							options.hook( res );
+						}
+
+						return this._set( res ); 
+					});
 			};
 		}
 
@@ -234,6 +243,10 @@ class Table {
 
 	// -- getMany
 	getMany( arr, options ){
+		if ( !options ){
+			options = {};
+		}
+
 		return this.preload( 'get-many' ).then( () => {
 			var rtn,
 				all = [],
@@ -276,6 +289,10 @@ class Table {
 				}
 
 				rtn.then( ( res ) => {
+					if ( options.hook ){
+						options.hook( res );
+					}
+
 					res.forEach( ( r ) => {
 						this._set( r );
 					});
@@ -285,7 +302,7 @@ class Table {
 			}
 
 			return rtn.then( () => {
-				var collection = new (settings.Collection)();
+				var collection = new (this.collectionClass)();
 
 				all.forEach( ( id, i ) => {
 					collection.data[i] = this.index.get( id );
@@ -300,9 +317,17 @@ class Table {
 	// all returns back the whole collection.  Allowing obj for dynamic
 	// urls
 	all( obj, options ){
+		if ( !options ){
+			options = {};
+		}
+
 		return this.preload( 'all' ).then( () => {
-			if ( !this.$all || (options&&options.cached===false) ){
+			if ( !this.$all || options.cached===false ){
 				this.$all = this.connector.all( obj, null, options ).then( (res) => {
+					if ( options.hook ){
+						options.hook( res );
+					}
+
 					this.consume( res );
 					
 					return this.collection;
@@ -315,6 +340,10 @@ class Table {
 
 	// -- insert
 	insert( obj, options ){
+		if ( !options ){
+			options = {};
+		}
+
 		return this.preload( 'insert' ).then( () => {
 			var t = this.find( obj );
 
@@ -327,6 +356,10 @@ class Table {
 				return this.connector.create( obj, obj, options ).then( ( res ) => {
 					var proxy = this.set( res ).ref;
 
+					if ( options.hook ){
+						options.hook( res );
+					}
+
 					proxy.merge( obj );
 
 					return proxy;
@@ -338,31 +371,41 @@ class Table {
 	// -- update
 	// delta is optional
 	update( from, delta, options ){
+		if ( !options ){
+			options = {};
+		}
+
 		return this.preload( 'update' ).then( () => {
-			var t;
+			var proxy;
 
 			if ( from instanceof Proxy ){
-				t = from;
-				from = t.getDatum();
+				proxy = from;
+				from = from.getDatum();
 			}else{
 				from = this.$encode( from );
-				t = this.find( from );
+				proxy = this.find( from );
 			}
 
 			if ( !delta ){
-				delta = t.getChanges();
+				delta = proxy.getChanges();
 			}
 
-			if ( t ){
+			if ( proxy ){
 				return this.connector.update( from, delta, options )
 				.then( ( res ) => {
-					t.merge( delta );
-
-					if ( bmoor.isObject(res) ){
-						t.merge( res );
+					if ( !options.ignoreDelta ){
+						proxy.merge( delta );
 					}
 
-					return res;
+					if ( !options.ignoreResponse && !bmoor.isObject(res) ){
+						proxy.merge( res );
+					}
+
+					if ( options.hook ){
+						options.hook( res );
+					}
+
+					return proxy;
 				});
 			}else{
 				throw new Error(
@@ -389,7 +432,11 @@ class Table {
 				.then( ( res ) => {
 					this.del( obj );
 
-					return res;
+					if ( options.hook ){
+						options.hook( res );
+					}
+
+					return proxy;
 				});
 			}else{
 				throw new Error(
@@ -435,6 +482,10 @@ class Table {
 					null, // no datum to send
 					options // allow more fine tuned management
 				).then( (res) => {
+					if ( options.hook ){
+						options.hook(res);
+					}
+
 					this.consume( res );
 				});
 			}else{
@@ -474,6 +525,6 @@ class Table {
 }
 
 Table.schema = schema;
-Table.settings = settings;
+Table.settings = defaultSettings;
 
 module.exports = Table;

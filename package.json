@@ -14,8 +14,8 @@
     "build": "gulp build"
   },
   "dependencies": {
-    "bmoor": "~0.4.4",
-    "bmoor-data": "~0.4.14",
+    "bmoor": "~0.4.5",
+    "bmoor-data": "~0.4.17",
     "bmoor-comm": "~0.4.13",
     "babel-polyfill": "^6.26.0",
     "formdata-polyfill": "^3.0.9"
