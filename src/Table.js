@@ -5,9 +5,12 @@ const bmoor = require('bmoor'),
 	DataCollection = require('bmoor-data').Collection;
 
 var defaultSettings = {
-		Proxy: DataProxy,
-		proxySettings: {},
-		Collection: DataCollection
+		proxyFactory: function( datum ){
+			return new DataProxy( datum );
+		},
+		collectionFactory: function(){
+			return new DataCollection();
+		}
 	};
 
 class Table {
@@ -29,9 +32,18 @@ class Table {
 		this.connector = ops.connector;
 		
 		this.joins = ops.joins || {};
-		this.proxyClass = ops.proxy || defaultSettings.Proxy;
-		this.proxySettings = ops.proxySettings || defaultSettings.proxySettings;
-		this.collectionClass = ops.collection || defaultSettings.Collection;
+
+		if ( ops.proxy && !ops.proxyFactory ){
+			console.warn('ops.proxy will be deprecated in next major version');
+			ops.proxyFactory = function( datum ){
+				return new (ops.proxy)( datum );
+			};
+		}
+
+		this.proxyFactory = ops.proxyFactory || 
+			defaultSettings.proxyFactory;
+		this.collectionFactory = ops.collectionFactory || 
+			defaultSettings.collectionFactory;
 
 		if ( !ops.id ){
 			throw new Error(
@@ -40,7 +52,7 @@ class Table {
 		}
 
 		// If performance matters, use bmoor-data's Proxy
-		this.preload = ops.preload || function(){
+		this.before = ops.before || function(){
 			return Promise.resolve(true);
 		};
 
@@ -103,7 +115,7 @@ class Table {
 	}
 
 	reset(){
-		this.collection = new (this.collectionClass)();
+		this.collection = this.collectionFactory( this );
 		this.index = this.collection.index( this.$id );
 		this._selections = {};
 
@@ -113,8 +125,12 @@ class Table {
 	}
 
 	// no promise routes
-	find( obj ){
-		return this.index.get( this.$id(obj) );
+	find( dex ){
+		if ( bmoor.isObject(dex) ){
+			dex = this.$id(dex);
+		}
+
+		return this.index.get( dex );
 	}
 
 	set( obj, delta ){
@@ -129,7 +145,7 @@ class Table {
 				t.merge( delta || obj );
 			}else{
 				this.normalize( obj );
-				t = new (this.proxyClass)( obj, this, this.proxySettings );
+				t = this.proxyFactory( obj, this );
 
 				this.collection.add( t );
 			}
@@ -181,7 +197,9 @@ class Table {
 			options = {};
 		}
 
-		if ( options.batch ){
+		// batch in the number of seconds you wait for another call
+		// allow for the default to be batching
+		if ( 'batch' in options || 'batch' in defaultSettings ){
 			if ( this.batched ){
 				this.batched.list.push( obj ); 
 			}else{
@@ -195,7 +213,8 @@ class Table {
 
 							return this.getMany( batched.list )
 							.then( resolve, reject );
-						}, options.batch);
+						}, 'batch' in options ?
+							options.batch : defaultSettings.batch );
 					})
 				};
 			}
@@ -215,7 +234,7 @@ class Table {
 			};
 		}
 
-		return this.preload( 'get' ).then( () => {
+		return this.before( 'get' ).then( () => {
 			var t = this.find( obj );
 			
 			if ( !t || (options&&options.cached===false) ){
@@ -247,7 +266,7 @@ class Table {
 			options = {};
 		}
 
-		return this.preload( 'get-many' ).then( () => {
+		return this.before( 'get-many', arr ).then( () => {
 			var rtn,
 				all = [],
 				req = [];
@@ -302,7 +321,7 @@ class Table {
 			}
 
 			return rtn.then( () => {
-				var collection = new (this.collectionClass)();
+				var collection = this.collectionFactory( this );
 
 				all.forEach( ( id, i ) => {
 					collection.data[i] = this.index.get( id );
@@ -321,7 +340,7 @@ class Table {
 			options = {};
 		}
 
-		return this.preload( 'all' ).then( () => {
+		return this.before( 'all' ).then( () => {
 			if ( !this.$all || options.cached===false ){
 				this.$all = this.connector.all( obj, null, options ).then( (res) => {
 					if ( options.hook ){
@@ -344,7 +363,7 @@ class Table {
 			options = {};
 		}
 
-		return this.preload( 'insert' ).then( () => {
+		return this.before( 'insert', obj ).then( () => {
 			var t = this.find( obj );
 
 			if ( t ){
@@ -354,11 +373,11 @@ class Table {
 				);
 			}else{
 				return this.connector.create( obj, obj, options ).then( ( res ) => {
-					var proxy = this.set( res ).ref;
-
 					if ( options.hook ){
 						options.hook( res );
 					}
+
+					let proxy = this.set( res ).ref;
 
 					proxy.merge( obj );
 
@@ -375,7 +394,7 @@ class Table {
 			options = {};
 		}
 
-		return this.preload( 'update' ).then( () => {
+		return this.before( 'update', from, delta ).then( () => {
 			var proxy;
 
 			if ( from instanceof Proxy ){
@@ -393,16 +412,16 @@ class Table {
 			if ( proxy ){
 				return this.connector.update( from, delta, options )
 				.then( ( res ) => {
+					if ( options.hook ){
+						options.hook( res );
+					}
+
 					if ( !options.ignoreDelta ){
 						proxy.merge( delta );
 					}
 
-					if ( !options.ignoreResponse && !bmoor.isObject(res) ){
+					if ( !options.ignoreResponse && bmoor.isObject(res) ){
 						proxy.merge( res );
-					}
-
-					if ( options.hook ){
-						options.hook( res );
 					}
 
 					return proxy;
@@ -422,7 +441,7 @@ class Table {
 			options = {};
 		}
 
-		return this.preload( 'delete' ).then( () => {
+		return this.before( 'delete', obj ).then( () => {
 			var proxy = this.find( obj );
 
 			if ( proxy ){
@@ -430,11 +449,11 @@ class Table {
 
 				return this.connector.delete( datum, datum, options )
 				.then( ( res ) => {
-					this.del( obj );
-
 					if ( options.hook ){
 						options.hook( res );
 					}
+
+					this.del( obj );
 
 					return proxy;
 				});
@@ -450,7 +469,7 @@ class Table {
 
 	// -- select
 	select( qry, options ){
-		return this.preload( 'select' ).then( () => {
+		return this.before( 'select', qry ).then( () => {
 			var op,
 				rtn,
 				test,
@@ -464,10 +483,12 @@ class Table {
 			this.normalize( qry );
 
 			test = options instanceof Test ? options :
-				new Test( options.fn || qry, {
-					hash: options.hash,
-					massage: this.$datum
-				});
+				( options.test || 
+					new Test( options.fn || qry, {
+						hash: options.hash,
+						massage: options.massage || this.$datum
+					})
+				);
 			selection = selections[test.hash];
 
 			if ( selection && options.cached !== false ){

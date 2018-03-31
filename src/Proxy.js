@@ -14,56 +14,6 @@ class JoinableProxy extends DataProxy {
 		this.joins = {};
 	}
 
-	inflate(){
-		var joins = this.getTable().joins,
-			keys = Object.keys( joins ),
-			req = [];
-
-		Object.keys( joins ).forEach( (join) => {
-			req.push( this.join(join) );
-		});
-
-		return Promise.all( req ).then( (res) => {
-			var rtn = {};
-
-			keys.forEach(function( key, i ){
-				rtn[ key ] = res[i];
-			});
-
-			return rtn;
-		});
-	}
-
-	join( tableName ){
-		var type,
-			field,
-			rtn = this.joins[tableName],
-			myTable = this.getTable(),
-			joins = myTable.joins,
-			join = joins[tableName];
-
-		if ( !rtn ){ 
-			if ( bmoor.isObject(join) ){
-				type = join.type;
-				field = join.field;
-			}else{
-				type = 'oneway';
-				field = join;
-			}
-
-			rtn = this[type+'Join'](
-				tableName,
-				this.$( field )
-			);
-
-			this.joins[tableName] = rtn;
-		}else if ( !join ){
-			throw new Error('Missing join to table: '+tableName);
-		}
-
-		return rtn;
-	}
-
 	onewayJoin( tableName, searchValue ){
 		var foreignTable = schema.get( tableName );
 
@@ -96,6 +46,56 @@ class JoinableProxy extends DataProxy {
 		}else{
 			throw new Error(tableName+' is not a known table');
 		}
+	}
+	
+	join( tableName ){
+		var type,
+			field,
+			rtn = this.joins[tableName],
+			myTable = this.getTable(),
+			joins = myTable.joins,
+			join = joins[tableName];
+
+		if ( !rtn ){ 
+			if ( bmoor.isObject(join) ){
+				type = join.type;
+				field = join.field;
+			}else{
+				type = 'oneway';
+				field = join;
+			}
+
+			rtn = this[type+'Join'](
+				tableName,
+				this.$( field )
+			);
+
+			this.joins[tableName] = rtn;
+		}else if ( !join ){
+			throw new Error('Missing join to table: '+tableName);
+		}
+
+		return rtn;
+	}
+
+	inflate(){
+		var joins = this.getTable().joins,
+			keys = Object.keys( joins ),
+			req = [];
+
+		Object.keys( joins ).forEach( (join) => {
+			req.push( this.join(join) );
+		});
+
+		return Promise.all( req ).then( (res) => {
+			var rtn = {};
+
+			keys.forEach(function( key, i ){
+				rtn[ key ] = res[i];
+			});
+
+			return rtn;
+		});
 	}
 }
 

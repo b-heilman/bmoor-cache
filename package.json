@@ -1,6 +1,6 @@
 {
   "name": "bmoor-cache",
-  "version": "0.4.13",
+  "version": "0.4.14",
   "author": "Brian Heilman <das.ist.junk@gmail.com>",
   "description": "Managing data and remote sources",
   "license": "MIT",
@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "bmoor": "~0.4.5",
-    "bmoor-data": "~0.4.17",
+    "bmoor-data": "~0.4.18",
     "bmoor-comm": "~0.4.13",
     "babel-polyfill": "^6.26.0",
     "formdata-polyfill": "^3.0.9"

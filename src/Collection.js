@@ -17,6 +17,8 @@ function configSettings( settings ){
 	return settings;
 }
 
+console.log( 'data-collection', DataCollection );
+
 class Collection extends DataCollection {
 	index( search, settings ){
 		if ( !bmoor.isFunction(search) ){
@@ -31,7 +33,7 @@ class Collection extends DataCollection {
 			settings = configSettings( settings );
 		}
 
-		return super.index( search, settings );
+		return super.route( search, settings );
 	}
 
 	filter( search, settings ){
@@ -39,7 +41,7 @@ class Collection extends DataCollection {
 			settings = configSettings( settings );
 		}
 
-		return super.index( search, settings );
+		return super.filter( search, settings );
 	}
 
 	search( settings ){

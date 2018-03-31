@@ -125,6 +125,8 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 	});
 
 	it('should properly overload update request', function( done ){
+		var called = false;
+
 		mockery.enable();
 
 		testHook = function( obj, args ){
@@ -133,12 +135,20 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 			expect( args.hello ).toBeUndefined();
 		};
 
-		table.update( {id:2}, {'hello':'world'} ).then(function( res ){
-			expect( res ).toBe( 'OK' );
+		table.update( {id:2}, {'hello':'world'}, {
+			hook: function( res ){
+				called = true;
+				expect( res ).toBe( 'OK' );
+			}
+		})
+		.then(function( res ){
+			var was = table.find(2);
 
-			return table.get( {id:2} ).then(function( res ){
-				var datum = res.getDatum();
+			expect( res ).toBe( was );
 
+			return table.get( {id:2} ).then(function( gotten ){
+				var datum = gotten.getDatum();
+				
 				expect( datum.id ).toBe( 2 );
 				expect( datum.foo ).toBe( 'bar2' );
 				expect( datum.hello ).toBe( 'world' );
@@ -159,8 +169,19 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 			expect( args ).toEqual( {id:1,foo:'bar'} );
 		};
 
-		table.delete( {id:1} ).then(function( res ){
-			expect( res ).toBe( 'OK' );
+		let was,
+			called = false;
+
+		table.delete( {id:1}, {
+			hook: function( res ){
+				called = true;
+				was = table.find(1);
+
+				expect( res ).toBe( 'OK' );
+			}
+		}).then(function( res ){
+			expect( called ).toBe( true );
+			expect( was ).toBe( res );
 
 			return table.all().then(function( res ){
 				

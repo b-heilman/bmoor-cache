@@ -1,18 +1,17 @@
 describe('bmoor-cache::Table', function(){
 
 	var Feed = require('bmoor-comm').connect.Feed,
-		Proxy = require('bmoor-data').object.Proxy,
-		CacheProxy = require('./Proxy.js'),
 		Table = require('./Table.js'),
-		httpMock = new (require('bmoor-comm').testing.Requestor)();
+		httpMock = new (require('bmoor-comm').testing.Requestor)(),
+		CacheProxy = require('./Proxy.js'),
+		CacheCollection = require('./Collection.js');
 
 	describe('manaul mode', function(){
 		var table;
 
 		beforeEach(function(){
 			table = new Table('test',{
-				id: 'foo.bar',
-				proxy: Proxy
+				id: 'foo.bar'
 			});
 		});
 
@@ -42,8 +41,7 @@ describe('bmoor-cache::Table', function(){
 					readMany: '/test?id[]={{id}}',
 					create: '/test/create',
 					update: '/test/update/{{id}}'
-				}),
-				proxy: Proxy
+				})
 			});
 
 			httpMock.enable();
@@ -265,10 +263,17 @@ describe('bmoor-cache::Table', function(){
 			httpMock.expect('/test/update/1').respond( 'OK' );
 
 			table.get(1).then(function( a ){
+				var called = false;
+
 				expect( a.getDatum() ).toEqual( ein );
 			
-				table.update(1,{foo:'bar2'}).then( function( d ){
-					expect( d ).toBe( 'OK' );
+				table.update(1,{foo:'bar2'}, {hook:function( res ){
+					called = true;
+					expect( res ).toBe( 'OK' );
+				}})
+				.then( function( d ){
+					expect( called ).toBe( true );
+					expect( a ).toBe( d );
 					expect( a.getDatum().foo ).toBe( 'bar2' );
 
 					done();
@@ -290,11 +295,11 @@ describe('bmoor-cache::Table', function(){
 				expect( a.getDatum() ).toEqual( ein );
 			
 				table.update(1,{foo:'bar2'}).then( function( d ){
-					expect( d.foo ).toBe( 3 ); // returns back raw
+					expect( d ).toBe( a ); // returns back raw
 					expect( a.getDatum().foo ).toBe( 3 );
 
 					table.update(1,{foo:'bar3'}).then( function( d ){
-						expect( d.foo ).toBe( 30 ); // returns back raw
+						expect( d ).toBe( a ); // returns back raw
 						expect( a.getDatum().foo ).toBe( 30 );
 						
 						done();
@@ -400,8 +405,7 @@ describe('bmoor-cache::Table', function(){
 				id: 'id',
 				connector: new Feed({
 					search: '/test/{{type}}'
-				}),
-				proxy: Proxy
+				})
 			});
 
 			httpMock.enable();
@@ -441,7 +445,7 @@ describe('bmoor-cache::Table', function(){
 		});
 	});
 
-	describe('table joining', function(){
+	describe('CacheProxy :: table joining', function(){
 		var table,
 			table2,
 			table3,
@@ -450,7 +454,9 @@ describe('bmoor-cache::Table', function(){
 		beforeEach(function(){
 			table = new Table('test1',{
 				id: 'id',
-				proxy: CacheProxy,
+				proxyFactory: function( datum, parent ){
+					return new CacheProxy( datum, parent );
+				},
 				connector: new Feed({
 					all: '/test/all',
 					read: '/test/{{id}}',
@@ -470,7 +476,9 @@ describe('bmoor-cache::Table', function(){
 
 			table2 = new Table('test2',{
 				id: 'id',
-				proxy: CacheProxy,
+				proxyFactory: function( datum, parent ){
+					return new CacheProxy( datum, parent );
+				},
 				connector: new Feed({
 					all: '/test2/all',
 					read: '/test2/{{id}}',
@@ -482,7 +490,9 @@ describe('bmoor-cache::Table', function(){
 
 			table3 = new Table('test3',{
 				id: 'id',
-				proxy: CacheProxy,
+				proxyFactory: function( datum, parent ){
+					return new CacheProxy( datum, parent );
+				},
 				connector: new Feed({
 					all: '/test3/all',
 					read: '/test3/{{id}}',
@@ -494,7 +504,9 @@ describe('bmoor-cache::Table', function(){
 
 			table4 = new Table('test4',{
 				id: 'id',
-				proxy: CacheProxy,
+				proxyFactory: function( datum, parent ){
+					return new CacheProxy( datum, parent );
+				},
 				connector: new Feed({
 					query: {
 						'foreignId': '/test4/{{foreignId}}'
@@ -599,6 +611,82 @@ describe('bmoor-cache::Table', function(){
 		});
 	});
 	
+	describe('CacheCollection', function(){
+		var table;
+
+		beforeEach(function(){
+			table = new Table('test1',{
+				id: 'id',
+				collectionFactory: function(){
+					return new CacheCollection();
+				},
+				connector: new Feed({
+					all: '/test/all'
+				})
+			});
+
+			httpMock.enable();
+		});
+
+		afterEach(function(){
+			httpMock.verifyWasFulfilled();
+		});
+
+		it('should ',function( done ){
+			httpMock.expect('/test/all').respond([{
+				id: 1234,
+				foo: 'bar',
+				value2: 1,
+				value3: [ 2, 3 ]
+			}]);
+
+			table.all().then(function( res ){
+				expect( res instanceof CacheCollection ).toBe( true );
+
+				done();
+			});
+		});
+
+		it('should generate collections of the same type', function( done ){
+			httpMock.expect('/test/all').respond([{
+					id: 1,
+					foo: 'eins',
+					other: true
+				},{
+					id: 2,
+					foo: 'zwei',
+					other: false,
+				},{
+					id: 4,
+					foo: 'drei',
+					other: true
+				},{
+					id: 5,
+					foo: 'fier',
+					other: false
+				},{
+					id: 3,
+					foo: 'drei',
+					other: true
+				}
+			]);
+
+			table.all().then(function( res ){
+				var t = res.sorted( (a,b) => {
+					return b.id - a.id;
+				}).filter({other:true});
+
+				expect( t.data.length ).toBe( 3 );
+				expect( t instanceof CacheCollection ).toBe( true );
+			
+				done();
+			}).catch( (ex) => {
+				console.log( ex.message );
+				console.log( ex );
+			});
+		});
+	});
+
 	describe('table normalization', function(){
 		var table;
 

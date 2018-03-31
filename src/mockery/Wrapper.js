@@ -1,5 +1,6 @@
 var schema = require('./Schema.js');
 
+// TODO : I don't think this should always call all?
 function makeStub( table, old ){
 	// the idea is to route all requests through all, since all 
 	// should be the simplest thing to stub.  Simplifies queries.
@@ -33,12 +34,12 @@ class Wrapper{
 			let mock = this.mock,
 				table = this.table,
 				prev = {
-					preload: table.preload,
+					before: table.before,
 					search: table.connector.search,
 					intercept: table.connector.all.$settings.intercept
 				};
 
-			table.preload = makeStub( table, prev.preload );
+			table.before = makeStub( table, prev.before );
 
 			table.connector.search = null; // force search through all
 			table.connector.all.$settings.intercept = mock.all;
