@@ -1,6 +1,6 @@
 {
   "name": "bmoor-cache",
-  "version": "0.4.14",
+  "version": "0.4.15",
   "author": "Brian Heilman <das.ist.junk@gmail.com>",
   "description": "Managing data and remote sources",
   "license": "MIT",
@@ -14,16 +14,16 @@
     "build": "gulp build"
   },
   "dependencies": {
-    "bmoor": "~0.4.5",
-    "bmoor-data": "~0.4.18",
-    "bmoor-comm": "~0.4.13",
     "babel-polyfill": "^6.26.0",
-    "formdata-polyfill": "^3.0.9"
+    "bmoor": "~0.4.5",
+    "bmoor-comm": "~0.4.14",
+    "bmoor-data": "~0.4.19",
+    "formdata-polyfill": "^3.0.10"
   },
   "devDependencies": {
-    "babel-core": "^6.26.0",
+    "babel-core": "^6.26.3",
     "babel-loader": "^7.1.2",
-    "babel-preset-env": "^1.6.1",
+    "babel-preset-env": "^1.7.0",
     "gulp": "3.9.1",
     "gulp-jsdoc3": "0.3.0",
     "gulp-jshint": "2.0.0",
@@ -32,16 +32,16 @@
     "jasmine": "^2.9.0",
     "jshint": "2.9.2",
     "jshint-stylish": "2.1.0",
-    "karma": "^2.0.0",
+    "karma": "^2.0.2",
     "karma-chrome-launcher": "^2.2.0",
     "karma-ie-launcher": "^1.0.0",
-    "karma-jasmine": "^1.1.1",
+    "karma-jasmine": "^1.1.2",
     "karma-sourcemap-loader": "^0.3.7",
     "karma-webpack": "^2.0.9",
     "map-stream": "0.0.6",
     "phantomjs-polyfill": "0.0.2",
     "phantomjs-prebuilt": "2.1.7",
-    "webpack": "^3.10.0",
+    "webpack": "^3.12.0",
     "webpack-stream": "^4.0.0"
   }
 }

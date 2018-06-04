@@ -82,10 +82,10 @@ module.exports = {
 	Pool: __webpack_require__(13),
 	Collection: __webpack_require__(19),
 	stream: {
-		Converter: __webpack_require__(20)
+		Converter: __webpack_require__(27)
 	},
 	object: {
-		Proxy: __webpack_require__(21),
+		Proxy: __webpack_require__(28),
 		Test: __webpack_require__(8),
 		Hash: __webpack_require__(7)
 	}
@@ -252,6 +252,18 @@ var Feed = function (_Eventing) {
 		setUid(_this);
 
 		_this.data = src;
+
+		if (_this.settings.controller) {
+			_this.controller = new _this.settings.controller(_this);
+		}
+
+		_this.ready = bmoor.flow.window(function () {
+			if (_this.controller && _this.controller.ready) {
+				_this.controller.ready();
+			}
+
+			_this.trigger('update');
+		}, _this.settings.windowMin || 0, _this.settings.windowMax || 30);
 		return _this;
 	}
 
@@ -267,7 +279,7 @@ var Feed = function (_Eventing) {
 
 			this.trigger('insert', datum);
 
-			this.trigger('update');
+			this.ready();
 		}
 	}, {
 		key: 'consume',
@@ -280,7 +292,7 @@ var Feed = function (_Eventing) {
 				this.trigger('insert', d);
 			}
 
-			this.trigger('update');
+			this.ready();
 		}
 	}, {
 		key: 'follow',
@@ -549,6 +561,8 @@ function build(obj) {
 }
 
 var Hash = function Hash(ops, settings) {
+	var _this = this;
+
 	_classCallCheck(this, Hash);
 
 	var fn, hash;
@@ -570,16 +584,20 @@ var Hash = function Hash(ops, settings) {
 	}
 
 	this.hash = settings.hash || hash;
-	this.go = function (search) {
-		if (!bmoor.isObject(search)) {
-			return search;
+	this.fn = fn;
+	this.parse = function (search) {
+		if (bmoor.isObject(search)) {
+			return _this.fn(search);
 		} else {
-			if (settings.massage) {
-				search = settings.massage(search);
-			}
-
-			return fn(search);
+			return search;
 		}
+	};
+	this.go = function (search) {
+		if (settings.massage && bmoor.isObject(search)) {
+			search = settings.massage(search);
+		}
+
+		return _this.parse(search);
 	};
 };
 
@@ -634,6 +652,8 @@ function build(obj) {
 }
 
 var Test = function Test(ops, settings) {
+	var _this = this;
+
 	_classCallCheck(this, Test);
 
 	var fn, hash;
@@ -655,12 +675,13 @@ var Test = function Test(ops, settings) {
 	}
 
 	this.hash = settings.hash || hash;
+	this.parse = fn;
 	this.go = function (search) {
 		if (settings.massage) {
 			search = settings.massage(search);
 		}
 
-		return fn(search);
+		return _this.parse(search);
 	};
 };
 
@@ -689,8 +710,8 @@ module.exports = {
 	},
 	Schema: __webpack_require__(3),
 	Table: __webpack_require__(12),
-	Proxy: __webpack_require__(22),
-	Collection: __webpack_require__(23)
+	Proxy: __webpack_require__(29),
+	Collection: __webpack_require__(30)
 };
 
 /***/ }),
@@ -1016,7 +1037,9 @@ var Table = function () {
 
 			// batch in the number of seconds you wait for another call
 			// allow for the default to be batching
-			if ('batch' in options || 'batch' in defaultSettings) {
+			var batch = 'batch' in options ? options.batch : 'batch' in defaultSettings ? defaultSettings.batch : null;
+
+			if (batch || batch === 0) {
 				if (this.batched) {
 					this.batched.list.push(obj);
 				} else {
@@ -1029,7 +1052,7 @@ var Table = function () {
 								_this2.batched = null;
 
 								return _this2.getMany(batched.list).then(resolve, reject);
-							}, 'batch' in options ? options.batch : defaultSettings.batch);
+							}, batch);
 						})
 					};
 				}
@@ -1080,13 +1103,59 @@ var Table = function () {
 
 			return this.get(obj, options);
 		}
+	}, {
+		key: '_setMany',
+		value: function _setMany(prom, ids, hook) {
+			var _this3 = this;
+
+			var rtn = prom.then(function (res) {
+				if (hook) {
+					hook(res);
+				}
+
+				return res.map(function (r) {
+					return _this3._set(r);
+				});
+			});
+
+			return rtn.then(function (res) {
+				var collection = _this3.collectionFactory(_this3);
+
+				if (ids) {
+					ids.forEach(function (id, i) {
+						collection.data[i] = _this3.index.get(id);
+					});
+				} else {
+					res.forEach(function (p, i) {
+						collection.data[i] = p;
+					});
+				}
+
+				return collection;
+			});
+		}
+	}, {
+		key: 'fetch',
+		value: function fetch(qry, options) {
+			var _this4 = this;
+
+			if (!options) {
+				options = {};
+			}
+
+			return this.before('fetch', qry).then(function () {
+				var rtn = _this4.connector.query(qry, null, options);
+
+				return _this4._setMany(rtn, null, options.hook);
+			});
+		}
 
 		// -- getMany
 
 	}, {
 		key: 'getMany',
 		value: function getMany(arr, options) {
-			var _this3 = this;
+			var _this5 = this;
 
 			if (!options) {
 				options = {};
@@ -1098,24 +1167,24 @@ var Table = function () {
 				    req = [];
 
 				// reduce the list using gotten
-				if (_this3.gotten) {
+				if (_this5.gotten) {
 					arr.forEach(function (r) {
-						var t = _this3.$id(r);
+						var t = _this5.$id(r);
 
 						all.push(t);
 
-						if (!_this3.gotten[t]) {
-							req.push(_this3.$encode(r));
+						if (!_this5.gotten[t]) {
+							req.push(_this5.$encode(r));
 						}
 					});
 				} else {
 					arr.forEach(function (r) {
-						var t = _this3.$id(r);
+						var t = _this5.$id(r);
 
 						all.push(t);
 
-						if (!_this3.index.get(t)) {
-							req.push(_this3.$encode(r));
+						if (!_this5.index.get(t)) {
+							req.push(_this5.$encode(r));
 						}
 					});
 				}
@@ -1123,38 +1192,20 @@ var Table = function () {
 				if (req.length) {
 					// this works because I can assume id was defined for 
 					// the feed
-					if (_this3.connector.readMany) {
-						rtn = _this3.connector.readMany(req, null, options);
+					if (_this5.connector.readMany) {
+						rtn = _this5.connector.readMany(req, null, options);
 					} else {
 						// The feed doesn't have readMany, so many reads will work
 						req.forEach(function (id, i) {
-							req[i] = _this3.connector.read(id, null, options);
+							req[i] = _this5.connector.read(id, null, options);
 						});
 						rtn = Promise.all(req);
 					}
-
-					rtn.then(function (res) {
-						if (options.hook) {
-							options.hook(res);
-						}
-
-						res.forEach(function (r) {
-							_this3._set(r);
-						});
-					});
 				} else {
-					rtn = Promise.resolve(true); // nothing to do
+					rtn = Promise.resolve([]); // nothing to do
 				}
 
-				return rtn.then(function () {
-					var collection = _this3.collectionFactory(_this3);
-
-					all.forEach(function (id, i) {
-						collection.data[i] = _this3.index.get(id);
-					});
-
-					return collection;
-				});
+				return _this5._setMany(rtn, all, options.hook);
 			});
 		}
 
@@ -1165,26 +1216,26 @@ var Table = function () {
 	}, {
 		key: 'all',
 		value: function all(obj, options) {
-			var _this4 = this;
+			var _this6 = this;
 
 			if (!options) {
 				options = {};
 			}
 
 			return this.before('all').then(function () {
-				if (!_this4.$all || options.cached === false) {
-					_this4.$all = _this4.connector.all(obj, null, options).then(function (res) {
+				if (!_this6.$all || options.cached === false) {
+					_this6.$all = _this6.connector.all(obj, null, options).then(function (res) {
 						if (options.hook) {
 							options.hook(res);
 						}
 
-						_this4.consume(res);
+						_this6.consume(res);
 
-						return _this4.collection;
+						return _this6.collection;
 					});
 				}
 
-				return _this4.$all;
+				return _this6.$all;
 			});
 		}
 
@@ -1193,24 +1244,24 @@ var Table = function () {
 	}, {
 		key: 'insert',
 		value: function insert(obj, options) {
-			var _this5 = this;
+			var _this7 = this;
 
 			if (!options) {
 				options = {};
 			}
 
 			return this.before('insert', obj).then(function () {
-				var t = _this5.find(obj);
+				var t = _this7.find(obj);
 
 				if (t) {
 					throw new Error('This already exists ' + JSON.stringify(obj));
 				} else {
-					return _this5.connector.create(obj, obj, options).then(function (res) {
+					return _this7.connector.create(obj, obj, options).then(function (res) {
 						if (options.hook) {
 							options.hook(res);
 						}
 
-						var proxy = _this5.set(res).ref;
+						var proxy = _this7.set(res).ref;
 
 						proxy.merge(obj);
 
@@ -1226,7 +1277,7 @@ var Table = function () {
 	}, {
 		key: 'update',
 		value: function update(from, delta, options) {
-			var _this6 = this;
+			var _this8 = this;
 
 			if (!options) {
 				options = {};
@@ -1239,16 +1290,16 @@ var Table = function () {
 					proxy = from;
 					from = from.getDatum();
 				} else {
-					from = _this6.$encode(from);
-					proxy = _this6.find(from);
+					from = _this8.$encode(from);
+					proxy = _this8.find(from);
 				}
 
 				if (!delta) {
 					delta = proxy.getChanges();
 				}
 
-				if (proxy) {
-					return _this6.connector.update(from, delta, options).then(function (res) {
+				if (proxy && delta) {
+					return _this8.connector.update(from, delta, options).then(function (res) {
 						if (options.hook) {
 							options.hook(res);
 						}
@@ -1263,6 +1314,8 @@ var Table = function () {
 
 						return proxy;
 					});
+				} else if (proxy) {
+					return Promise.resolve(proxy);
 				} else {
 					throw new Error('Can not update that which does not exist' + JSON.stringify(from));
 				}
@@ -1274,24 +1327,24 @@ var Table = function () {
 	}, {
 		key: 'delete',
 		value: function _delete(obj, options) {
-			var _this7 = this;
+			var _this9 = this;
 
 			if (!options) {
 				options = {};
 			}
 
 			return this.before('delete', obj).then(function () {
-				var proxy = _this7.find(obj);
+				var proxy = _this9.find(obj);
 
 				if (proxy) {
 					var datum = proxy.getDatum();
 
-					return _this7.connector.delete(datum, datum, options).then(function (res) {
+					return _this9.connector.delete(datum, datum, options).then(function (res) {
 						if (options.hook) {
 							options.hook(res);
 						}
 
-						_this7.del(obj);
+						_this9.del(obj);
 
 						return proxy;
 					});
@@ -1306,24 +1359,24 @@ var Table = function () {
 	}, {
 		key: 'select',
 		value: function select(qry, options) {
-			var _this8 = this;
+			var _this10 = this;
 
 			return this.before('select', qry).then(function () {
 				var op,
 				    rtn,
 				    test,
 				    selection,
-				    selections = _this8._selections;
+				    selections = _this10._selections;
 
 				if (!options) {
 					options = {};
 				}
 
-				_this8.normalize(qry);
+				_this10.normalize(qry);
 
 				test = options instanceof Test ? options : options.test || new Test(options.fn || qry, {
 					hash: options.hash,
-					massage: options.massage || _this8.$datum
+					massage: options.massage || _this10.$datum
 				});
 				selection = selections[test.hash];
 
@@ -1333,8 +1386,8 @@ var Table = function () {
 					return selection.filter;
 				}
 
-				if (_this8.connector.search) {
-					rtn = _this8.connector.search(qry, // variables
+				if (_this10.connector.search) {
+					rtn = _this10.connector.search(qry, // variables
 					null, // no datum to send
 					options // allow more fine tuned management
 					).then(function (res) {
@@ -1342,10 +1395,10 @@ var Table = function () {
 							options.hook(res);
 						}
 
-						_this8.consume(res);
+						_this10.consume(res);
 					});
 				} else {
-					rtn = _this8.all(qry, options);
+					rtn = _this10.all(qry, options);
 				}
 
 				if (selection) {
@@ -1357,7 +1410,7 @@ var Table = function () {
 				} else {
 					selections[test.hash] = op = {
 						filter: rtn.then(function () {
-							var res = _this8.collection.filter(test),
+							var res = _this10.collection.filter(test),
 							    disconnect = res.disconnect;
 
 							res.disconnect = function () {
@@ -1778,7 +1831,7 @@ module.exports = validate;
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
-var _get2 = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
+var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
@@ -1790,275 +1843,13 @@ var bmoor = __webpack_require__(0),
     Feed = __webpack_require__(5),
     Hash = __webpack_require__(7),
     Test = __webpack_require__(8),
-    setUid = bmoor.data.setUid;
-
-function testStack(old, fn) {
-	if (old) {
-		return function (massaged, ctx) {
-			if (fn(massaged, ctx)) {
-				return true;
-			} else {
-				return old(massaged, ctx);
-			}
-		};
-	} else {
-		return fn;
-	}
-}
-
-function memorized(parent, cache, expressor, generator, settings) {
-	var rtn, index, oldDisconnect;
-
-	if (!parent[cache]) {
-		parent[cache] = {};
-	}
-
-	index = parent[cache];
-
-	rtn = index[expressor.hash];
-
-	if (!rtn) {
-		if (!settings) {
-			settings = {};
-		}
-
-		if (settings.disconnect) {
-			oldDisconnect = settings.disconnect;
-		}
-
-		settings.disconnect = function () {
-			if (oldDisconnect) {
-				oldDisconnect();
-			}
-
-			index[expressor.hash] = null;
-		};
-
-		rtn = generator(expressor, parent, settings);
-
-		index[expressor.hash] = rtn;
-	}
-
-	return rtn;
-}
-
-function _route(dex, parent) {
-	var old = {},
-	    index = {},
-	    _get = function _get(key) {
-		var collection = index[key];
-
-		if (!collection) {
-			collection = parent.getChild(false);
-			index[key] = collection;
-		}
-
-		return collection;
-	};
-
-	function add(datum) {
-		var d = dex.go(datum);
-
-		old[setUid(datum)] = d;
-
-		_get(d).add(datum);
-	}
-
-	function _remove(datum) {
-		var dex = setUid(datum);
-
-		if (dex in old) {
-			_get(old[dex]).remove(datum);
-		}
-	}
-
-	for (var i = 0, c = parent.data.length; i < c; i++) {
-		add(parent.data[i]);
-	}
-
-	var _disconnect = parent.subscribe({
-		insert: function insert(datum) {
-			add(datum);
-		},
-		remove: function remove(datum) {
-			_remove(datum);
-		}
-	});
-
-	return {
-		get: function get(search) {
-			return _get(dex.go(search));
-		},
-		reroute: function reroute(datum) {
-			_remove(datum);
-			add(datum);
-		},
-		keys: function keys() {
-			return Object.keys(index);
-		},
-		disconnect: function disconnect() {
-			_disconnect();
-		}
-	};
-}
-
-function _index(dex, parent) {
-	var index = {};
-
-	for (var i = 0, c = parent.data.length; i < c; i++) {
-		var datum = parent.data[i],
-		    key = dex.go(datum);
-
-		index[key] = datum;
-	}
-
-	var _disconnect2 = parent.subscribe({
-		insert: function insert(datum) {
-			var key = dex.go(datum);
-			index[key] = datum;
-		},
-		remove: function remove(datum) {
-			var key = dex.go(datum);
-			delete index[key];
-		}
-	});
-
-	return {
-		get: function get(search) {
-			var key = dex.go(search);
-			return index[key];
-		},
-		keys: function keys() {
-			return Object.keys(index);
-		},
-		disconnect: function disconnect() {
-			_disconnect2();
-		}
-	};
-}
-
-function _sorted(dex, parent, settings) {
-	var child;
-
-	settings = Object.assign({
-		follow: true,
-		insert: function insert(datum) {
-			child.add(datum);
-			child.go();
-		},
-		update: function update() {
-			child.go();
-		}
-	}, settings);
-
-	child = parent.getChild(settings);
-
-	for (var i = 0, c = parent.data.length; i < c; i++) {
-		child.add(parent.data[i]);
-	}
-
-	child.go = bmoor.flow.window(function () {
-		if (settings.before) {
-			settings.before();
-		}
-
-		child.data.sort(dex.go);
-
-		if (settings.after) {
-			settings.after();
-		}
-
-		child.trigger('process');
-	}, settings.min || 5, settings.max || 30);
-
-	child.go.flush();
-
-	return child;
-}
-
-function mapped(dex, parent, settings) {
-	var child;
-
-	settings = Object.assign({}, {
-		insert: function insert(datum) {
-			// I only need to 
-			child.add(dex.go(datum));
-		}
-		// remove should use a look-aside
-	}, settings);
-
-	child = parent.getChild(settings);
-
-	child.go = bmoor.flow.window(function () {
-		var datum,
-		    arr = parent.data;
-
-		child.empty();
-
-		if (settings.before) {
-			settings.before();
-		}
-
-		for (var i = 0, c = arr.length; i < c; i++) {
-			datum = arr[i];
-
-			child.add(dex.go(datum));
-		}
-
-		if (settings.after) {
-			settings.after();
-		}
-
-		child.trigger('process');
-	}, settings.min || 5, settings.max || 30);
-
-	child.go.flush();
-
-	return child;
-}
-
-function _filter(dex, parent, settings) {
-	var child;
-
-	settings = Object.assign({
-		follow: true,
-		insert: function insert(datum) {
-			if (dex.go(datum)) {
-				child.add(datum);
-			}
-		}
-	}, settings);
-
-	child = parent.getChild(settings);
-
-	child.go = bmoor.flow.window(function () {
-		var datum,
-		    arr = parent.data;
-
-		child.empty();
-
-		if (settings.before) {
-			settings.before();
-		}
-
-		for (var i = 0, c = arr.length; i < c; i++) {
-			datum = arr[i];
-			if (dex.go(datum)) {
-				child.add(datum);
-			}
-		}
-
-		if (settings.after) {
-			settings.after();
-		}
-
-		child.trigger('process');
-	}, settings.min || 5, settings.max || 30);
-
-	child.go.flush();
-
-	return child;
-}
+    _route = __webpack_require__(20).fn,
+    _index = __webpack_require__(21).fn,
+    _filter = __webpack_require__(22).fn,
+    _sorted = __webpack_require__(23).fn,
+    mapped = __webpack_require__(24).fn,
+    testStack = __webpack_require__(25).test,
+    memorized = __webpack_require__(26).memorized;
 
 var Collection = function (_Feed) {
 	_inherits(Collection, _Feed);
@@ -2072,15 +1863,11 @@ var Collection = function (_Feed) {
 	_createClass(Collection, [{
 		key: '_add',
 		value: function _add(datum) {
-			var _this2 = this;
-
 			if (this.settings.follow && datum.on) {
-				datum.on[this.$$bmoorUid] = datum.on('update', function () {
-					_this2.go();
-				});
+				datum.on[this.$$bmoorUid] = datum.on('update', this.settings.follow);
 			}
 
-			_get2(Collection.prototype.__proto__ || Object.getPrototypeOf(Collection.prototype), '_add', this).call(this, datum);
+			_get(Collection.prototype.__proto__ || Object.getPrototypeOf(Collection.prototype), '_add', this).call(this, datum);
 		}
 
 		// remove a datum from the collection
@@ -2112,7 +1899,7 @@ var Collection = function (_Feed) {
 			if (rtn) {
 				this.trigger('remove', rtn);
 
-				this.trigger('update');
+				this.ready();
 
 				return rtn;
 			}
@@ -2132,7 +1919,7 @@ var Collection = function (_Feed) {
 				this.trigger('remove', d);
 			}
 
-			this.trigger('update');
+			this.ready();
 		}
 
 		// follow a parent collection
@@ -2140,20 +1927,20 @@ var Collection = function (_Feed) {
 	}, {
 		key: 'follow',
 		value: function follow(parent, settings) {
-			var _this3 = this;
+			var _this2 = this;
 
 			var disconnect = parent.subscribe(Object.assign({
 				insert: function insert(datum) {
-					_this3.add(datum);
+					_this2.add(datum);
 				},
 				remove: function remove(datum) {
-					_this3.remove(datum);
+					_this2.remove(datum);
 				},
 				process: function process() {
-					_this3.go();
+					_this2.go();
 				},
 				destroy: function destroy() {
-					_this3.destroy();
+					_this2.destroy();
 				}
 			}, settings));
 
@@ -2208,7 +1995,7 @@ var Collection = function (_Feed) {
 	}, {
 		key: 'get',
 		value: function get(search, settings) {
-			this.index(search, settings).get(search);
+			return this.index(search, settings).get(search);
 		}
 	}, {
 		key: 'route',
@@ -2383,6 +2170,352 @@ module.exports = Collection;
 "use strict";
 
 
+var bmoor = __webpack_require__(0),
+    setUid = bmoor.data.setUid;
+
+module.exports = {
+	fn: function route(dex, parent) {
+		var old = {},
+		    index = {},
+		    _get = function _get(key) {
+			var collection = index[key];
+
+			if (!collection) {
+				collection = parent.getChild(false);
+				index[key] = collection;
+			}
+
+			return collection;
+		};
+
+		function add(datum) {
+			var d = dex.go(datum);
+
+			old[setUid(datum)] = d;
+
+			_get(d).add(datum);
+		}
+
+		function _remove(datum) {
+			var dex = setUid(datum);
+
+			if (dex in old) {
+				_get(old[dex]).remove(datum);
+			}
+		}
+
+		for (var i = 0, c = parent.data.length; i < c; i++) {
+			add(parent.data[i]);
+		}
+
+		var _disconnect = parent.subscribe({
+			insert: function insert(datum) {
+				add(datum);
+			},
+			remove: function remove(datum) {
+				_remove(datum);
+			}
+		});
+
+		return {
+			get: function get(search) {
+				return _get(dex.parse(search));
+			},
+			reroute: function reroute(datum) {
+				_remove(datum);
+				add(datum);
+			},
+			keys: function keys() {
+				return Object.keys(index);
+			},
+			disconnect: function disconnect() {
+				_disconnect();
+			}
+		};
+	}
+};
+
+/***/ }),
+/* 21 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+module.exports = {
+	fn: function index(dex, parent) {
+		var index = {};
+
+		for (var i = 0, c = parent.data.length; i < c; i++) {
+			var datum = parent.data[i],
+			    key = dex.go(datum);
+
+			index[key] = datum;
+		}
+
+		var _disconnect = parent.subscribe({
+			insert: function insert(datum) {
+				var key = dex.go(datum);
+				index[key] = datum;
+			},
+			remove: function remove(datum) {
+				var key = dex.go(datum);
+				delete index[key];
+			}
+		});
+
+		return {
+			get: function get(search) {
+				var key = dex.parse(search);
+				return index[key];
+			},
+			keys: function keys() {
+				return Object.keys(index);
+			},
+			disconnect: function disconnect() {
+				_disconnect();
+			}
+		};
+	}
+};
+
+/***/ }),
+/* 22 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var bmoor = __webpack_require__(0);
+
+module.exports = {
+	fn: function fn(dex, parent, settings) {
+		var child;
+
+		settings = Object.assign({
+			follow: function follow() {
+				// TODO: does go actually need to be called?
+				child.go();
+			},
+			insert: function insert(datum) {
+				if (dex.go(datum)) {
+					child.add(datum);
+				}
+			}
+		}, settings);
+
+		child = parent.getChild(settings);
+
+		child.go = bmoor.flow.window(function () {
+			var datum,
+			    arr = parent.data;
+
+			child.empty();
+
+			if (settings.before) {
+				settings.before();
+			}
+
+			for (var i = 0, c = arr.length; i < c; i++) {
+				datum = arr[i];
+				if (dex.go(datum)) {
+					child.add(datum);
+				}
+			}
+
+			if (settings.after) {
+				settings.after();
+			}
+
+			child.trigger('process');
+		}, settings.min || 5, settings.max || 30);
+
+		child.go.flush();
+
+		return child;
+	}
+};
+
+/***/ }),
+/* 23 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var bmoor = __webpack_require__(0);
+
+module.exports = {
+	fn: function fn(dex, parent, settings) {
+		var child;
+
+		settings = Object.assign({
+			follow: function follow() {
+				// TODO: does go actually need to be called?
+				child.go();
+			},
+			insert: function insert(datum) {
+				child.add(datum);
+				child.go();
+			},
+			update: function update() {
+				child.go();
+			}
+		}, settings);
+
+		child = parent.getChild(settings);
+
+		for (var i = 0, c = parent.data.length; i < c; i++) {
+			child.add(parent.data[i]);
+		}
+
+		child.go = bmoor.flow.window(function () {
+			if (settings.before) {
+				settings.before();
+			}
+
+			child.data.sort(dex.go);
+
+			if (settings.after) {
+				settings.after();
+			}
+
+			child.trigger('process');
+		}, settings.min || 5, settings.max || 30);
+
+		child.go.flush();
+
+		return child;
+	}
+};
+
+/***/ }),
+/* 24 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+var bmoor = __webpack_require__(0);
+
+module.exports = {
+	fn: function fn(dex, parent, settings) {
+		var child;
+
+		settings = Object.assign({}, {
+			insert: function insert(datum) {
+				// I only need to 
+				child.add(dex.go(datum));
+			}
+			// remove should use a look-aside
+		}, settings);
+
+		child = parent.getChild(settings);
+
+		child.go = bmoor.flow.window(function () {
+			var datum,
+			    arr = parent.data;
+
+			child.empty();
+
+			if (settings.before) {
+				settings.before();
+			}
+
+			for (var i = 0, c = arr.length; i < c; i++) {
+				datum = arr[i];
+
+				child.add(dex.go(datum));
+			}
+
+			if (settings.after) {
+				settings.after();
+			}
+
+			child.trigger('process');
+		}, settings.min || 5, settings.max || 30);
+
+		child.go.flush();
+
+		return child;
+	}
+};
+
+/***/ }),
+/* 25 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+module.exports = {
+	test: function test(old, fn) {
+		if (old) {
+			return function () {
+				if (fn.apply(this, arguments)) {
+					return true;
+				} else {
+					return old.apply(this, arguments);
+				}
+			};
+		} else {
+			return fn;
+		}
+	}
+};
+
+/***/ }),
+/* 26 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+module.exports = {
+	memorized: function memorized(parent, cache, expressor, generator, settings) {
+		var rtn, index, oldDisconnect;
+
+		if (!parent[cache]) {
+			parent[cache] = {};
+		}
+
+		index = parent[cache];
+
+		rtn = index[expressor.hash];
+
+		if (!rtn) {
+			if (!settings) {
+				settings = {};
+			}
+
+			if (settings.disconnect) {
+				oldDisconnect = settings.disconnect;
+			}
+
+			settings.disconnect = function () {
+				if (oldDisconnect) {
+					oldDisconnect();
+				}
+
+				index[expressor.hash] = null;
+			};
+
+			rtn = generator(expressor, parent, settings);
+
+			index[expressor.hash] = rtn;
+		}
+
+		return rtn;
+	}
+};
+
+/***/ }),
+/* 27 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
@@ -2518,7 +2651,7 @@ var Converter = function (_Eventing) {
 module.exports = Converter;
 
 /***/ }),
-/* 21 */
+/* 28 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2580,7 +2713,7 @@ function _isDirty(obj) {
 	return false;
 }
 
-function _getChanges(obj) {
+function _getChanges(obj, cmp) {
 	var rtn = {},
 	    valid = false,
 	    keys = Object.keys(obj);
@@ -2589,17 +2722,18 @@ function _getChanges(obj) {
 		var k = keys[i];
 
 		if (k.charAt(0) !== '$') {
-			var d = obj[k];
+			var datum = obj[k];
 
-			if (bmoor.isObject(d)) {
-				d = _getChanges(d);
-				if (d) {
+			if (bmoor.isObject(datum)) {
+				var res = _getChanges(datum, cmp ? cmp[k] : null);
+
+				if (res) {
 					valid = true;
-					rtn[k] = d;
+					rtn[k] = res;
 				}
-			} else {
+			} else if (!cmp || !(k in cmp) || cmp[k] !== datum) {
 				valid = true;
-				rtn[k] = d;
+				rtn[k] = datum;
 			}
 		}
 	}
@@ -2660,7 +2794,7 @@ var Proxy = function (_Eventing) {
 	}, {
 		key: 'getChanges',
 		value: function getChanges() {
-			return _getChanges(this.mask);
+			return _getChanges(this.mask, this.getDatum());
 		}
 	}, {
 		key: 'isDirty',
@@ -2696,13 +2830,17 @@ var Proxy = function (_Eventing) {
 		key: 'merge',
 		value: function merge(delta) {
 			if (!delta) {
-				delta = this.mask;
+				delta = this.getChanges();
+			} else {
+				delta = _getChanges(delta, this.getDatum());
 			}
 
-			bmoor.object.merge(this.getDatum(), delta);
+			if (delta) {
+				bmoor.object.merge(this.getDatum(), delta);
 
-			this.mask = null;
-			this.trigger('update', delta);
+				this.mask = null;
+				this.trigger('update', delta);
+			}
 		}
 	}, {
 		key: 'trigger',
@@ -2729,7 +2867,7 @@ Proxy.getChanges = _getChanges;
 module.exports = Proxy;
 
 /***/ }),
-/* 22 */
+/* 29 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2858,7 +2996,7 @@ var JoinableProxy = function (_DataProxy) {
 module.exports = JoinableProxy;
 
 /***/ }),
-/* 23 */
+/* 30 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2892,8 +3030,6 @@ function configSettings(settings) {
 
 	return settings;
 }
-
-console.log('data-collection', DataCollection);
 
 var Collection = function (_DataCollection) {
 	_inherits(Collection, _DataCollection);

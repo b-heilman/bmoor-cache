@@ -199,7 +199,10 @@ class Table {
 
 		// batch in the number of seconds you wait for another call
 		// allow for the default to be batching
-		if ( 'batch' in options || 'batch' in defaultSettings ){
+		let batch = 'batch' in options ? options.batch :
+				( 'batch' in defaultSettings ? defaultSettings.batch : null );
+
+		if ( batch || batch === 0 ){
 			if ( this.batched ){
 				this.batched.list.push( obj ); 
 			}else{
@@ -213,8 +216,7 @@ class Table {
 
 							return this.getMany( batched.list )
 							.then( resolve, reject );
-						}, 'batch' in options ?
-							options.batch : defaultSettings.batch );
+						}, batch );
 					})
 				};
 			}
@@ -258,6 +260,44 @@ class Table {
 		options.cached = false;
 
 		return this.get( obj, options );
+	}
+
+	_setMany( prom, ids, hook ){
+		var rtn = prom.then( res => {
+			if ( hook ){
+				hook( res );
+			}
+
+			return res.map( r => this._set(r) );
+		});
+		
+		return rtn.then( res => {
+			var collection = this.collectionFactory( this );
+
+			if ( ids ){
+				ids.forEach( ( id, i ) => {
+					collection.data[i] = this.index.get( id );
+				});
+			}else{
+				res.forEach( ( p, i ) => {
+					collection.data[i] = p;
+				});
+			}
+
+			return collection;
+		});
+	}
+
+	fetch( qry, options ){
+		if ( !options ){
+			options = {};
+		}
+
+		return this.before( 'fetch', qry ).then( () => {
+			var rtn = this.connector.query( qry, null, options );
+
+			return this._setMany( rtn, null, options.hook );
+		});
 	}
 
 	// -- getMany
@@ -306,29 +346,11 @@ class Table {
 					});
 					rtn = Promise.all( req );
 				}
-
-				rtn.then( ( res ) => {
-					if ( options.hook ){
-						options.hook( res );
-					}
-
-					res.forEach( ( r ) => {
-						this._set( r );
-					});
-				});
 			}else{
-				rtn = Promise.resolve( true ); // nothing to do
+				rtn = Promise.resolve( [] ); // nothing to do
 			}
 
-			return rtn.then( () => {
-				var collection = this.collectionFactory( this );
-
-				all.forEach( ( id, i ) => {
-					collection.data[i] = this.index.get( id );
-				});
-
-				return collection;
-			});
+			return this._setMany( rtn, all, options.hook );
 		});
 	}
 
@@ -342,7 +364,8 @@ class Table {
 
 		return this.before( 'all' ).then( () => {
 			if ( !this.$all || options.cached===false ){
-				this.$all = this.connector.all( obj, null, options ).then( (res) => {
+				this.$all = this.connector.all( obj, null, options )
+				.then( (res) => {
 					if ( options.hook ){
 						options.hook( res );
 					}
@@ -368,11 +391,11 @@ class Table {
 
 			if ( t ){
 				throw new Error(
-					'This already exists ' +
-					JSON.stringify( obj )
+					'This already exists ' + JSON.stringify( obj )
 				);
 			}else{
-				return this.connector.create( obj, obj, options ).then( ( res ) => {
+				return this.connector.create( obj, obj, options )
+				.then( ( res ) => {
 					if ( options.hook ){
 						options.hook( res );
 					}
@@ -394,7 +417,8 @@ class Table {
 			options = {};
 		}
 
-		return this.before( 'update', from, delta ).then( () => {
+		return this.before( 'update', from, delta )
+		.then( () => {
 			var proxy;
 
 			if ( from instanceof Proxy ){
@@ -409,7 +433,7 @@ class Table {
 				delta = proxy.getChanges();
 			}
 
-			if ( proxy ){
+			if ( proxy && delta ){
 				return this.connector.update( from, delta, options )
 				.then( ( res ) => {
 					if ( options.hook ){
@@ -426,6 +450,8 @@ class Table {
 
 					return proxy;
 				});
+			}else if ( proxy ){
+				return Promise.resolve( proxy );
 			}else{
 				throw new Error(
 					'Can not update that which does not exist' +
@@ -441,7 +467,8 @@ class Table {
 			options = {};
 		}
 
-		return this.before( 'delete', obj ).then( () => {
+		return this.before( 'delete', obj )
+		.then( () => {
 			var proxy = this.find( obj );
 
 			if ( proxy ){
@@ -469,7 +496,8 @@ class Table {
 
 	// -- select
 	select( qry, options ){
-		return this.before( 'select', qry ).then( () => {
+		return this.before( 'select', qry )
+		.then( () => {
 			var op,
 				rtn,
 				test,

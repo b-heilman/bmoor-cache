@@ -17,8 +17,6 @@ function configSettings( settings ){
 	return settings;
 }
 
-console.log( 'data-collection', DataCollection );
-
 class Collection extends DataCollection {
 	index( search, settings ){
 		if ( !bmoor.isFunction(search) ){

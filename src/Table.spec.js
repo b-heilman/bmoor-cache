@@ -508,7 +508,7 @@ describe('bmoor-cache::Table', function(){
 					return new CacheProxy( datum, parent );
 				},
 				connector: new Feed({
-					query: {
+					search: {
 						'foreignId': '/test4/{{foreignId}}'
 					}
 				}),
