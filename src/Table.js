@@ -400,9 +400,23 @@ class Table {
 						options.hook( res );
 					}
 
-					let proxy = this.set( res ).ref;
+					let datum;
 
-					proxy.merge( obj );
+					if ( !options.ignoreResponse && bmoor.isObject(res) ){
+						datum = res;
+					} else {
+						datum = obj;
+
+						if ( options.makeId ){
+							options.makeId( obj, res );
+						}
+					}
+
+					let proxy = this.set( datum ).ref;
+
+					if ( options.useProto ){
+						proxy.merge( obj );
+					}
 
 					return proxy;
 				});
@@ -440,12 +454,10 @@ class Table {
 						options.hook( res );
 					}
 
-					if ( !options.ignoreDelta ){
-						proxy.merge( delta );
-					}
-
 					if ( !options.ignoreResponse && bmoor.isObject(res) ){
 						proxy.merge( res );
+					}else if ( !options.ignoreDelta ){
+						proxy.merge( delta );
 					}
 
 					return proxy;

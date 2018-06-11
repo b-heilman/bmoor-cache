@@ -236,7 +236,8 @@ describe('bmoor-cache::Table', function(){
 						expect( d.getDatum() ).toBe( ein );
 						expect( a.data.length ).toBe( 3 );
 
-						return table.insert({hello:'world'}).then(function( d ){
+						return table.insert({hello:'world'}, {useProto:true})
+						.then(function( d ){
 							expect( d.getDatum().foo ).toBe( 'woot' );
 							expect( d.getDatum().hello ).toBe( 'world' );
 						
@@ -304,6 +305,23 @@ describe('bmoor-cache::Table', function(){
 						
 						done();
 					});
+				});
+			});
+		});
+
+		describe('::insert', function(){
+			it('should only use the returned object', function( done ){
+				httpMock.expect('/test/create').respond({
+					id: 3,
+					foo: 'woot'
+				});
+
+				table.insert({hello:'world'})
+				.then(function( d ){
+					expect( d.$('foo') ).toBe( 'woot' );
+					expect( d.$('hello') ).toBeUndefined();
+				
+					done();
 				});
 			});
 		});

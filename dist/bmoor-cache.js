@@ -1261,9 +1261,23 @@ var Table = function () {
 							options.hook(res);
 						}
 
-						var proxy = _this7.set(res).ref;
+						var datum = void 0;
 
-						proxy.merge(obj);
+						if (!options.ignoreResponse && bmoor.isObject(res)) {
+							datum = res;
+						} else {
+							datum = obj;
+
+							if (options.makeId) {
+								options.makeId(obj, res);
+							}
+						}
+
+						var proxy = _this7.set(datum).ref;
+
+						if (options.useProto) {
+							proxy.merge(obj);
+						}
 
 						return proxy;
 					});
@@ -1304,12 +1318,10 @@ var Table = function () {
 							options.hook(res);
 						}
 
-						if (!options.ignoreDelta) {
-							proxy.merge(delta);
-						}
-
 						if (!options.ignoreResponse && bmoor.isObject(res)) {
 							proxy.merge(res);
+						} else if (!options.ignoreDelta) {
+							proxy.merge(delta);
 						}
 
 						return proxy;
@@ -2671,7 +2683,7 @@ var bmoor = __webpack_require__(0),
     Eventing = bmoor.Eventing;
 
 function makeMask(target, override) {
-	var mask = bmoor.isArray(target) ? target.slice(0) : Object.create(target);
+	var mask = bmoor.isArray(target) ? target.slice(0) : bmoor.object.mask(target);
 
 	// I'm being lazy
 	Object.keys(target).forEach(function (k) {
@@ -2686,7 +2698,7 @@ function makeMask(target, override) {
 			    o = override[k],
 			    bothObj = bmoor.isObject(m) && bmoor.isObject(o);
 
-			if ((!(k in mask) || !bothObj) && o !== m) {
+			if (!(bothObj && k in mask) && o !== m) {
 				mask[k] = o;
 			}
 		});
@@ -2695,8 +2707,12 @@ function makeMask(target, override) {
 	return mask;
 }
 
-function _isDirty(obj) {
+function _isDirty(obj, cmp) {
 	var keys = Object.keys(obj);
+
+	if (!cmp) {
+		cmp = Object.getPrototypeOf(obj);
+	}
 
 	for (var i = 0, c = keys.length; i < c; i++) {
 		var k = keys[i];
@@ -2704,7 +2720,9 @@ function _isDirty(obj) {
 		if (k.charAt(0) !== '$') {
 			var t = obj[k];
 
-			if (!bmoor.isObject(t) || _isDirty(t)) {
+			if (t === cmp[k]) {
+				continue;
+			} else if (!bmoor.isObject(t) || _isDirty(t, cmp[k])) {
 				return true;
 			}
 		}
@@ -2717,6 +2735,12 @@ function _getChanges(obj, cmp) {
 	var rtn = {},
 	    valid = false,
 	    keys = Object.keys(obj);
+
+	if (!cmp) {
+		cmp = Object.getPrototypeOf(obj);
+	} else if (!bmoor.isObject(cmp)) {
+		return bmoor.object.merge(rtn, obj);
+	}
 
 	for (var i = 0, c = keys.length; i < c; i++) {
 		var k = keys[i];
@@ -2731,7 +2755,7 @@ function _getChanges(obj, cmp) {
 					valid = true;
 					rtn[k] = res;
 				}
-			} else if (!cmp || !(k in cmp) || cmp[k] !== datum) {
+			} else if (!(k in cmp) || cmp[k] !== datum) {
 				valid = true;
 				rtn[k] = datum;
 			}
@@ -2743,7 +2767,7 @@ function _getChanges(obj, cmp) {
 	}
 }
 
-function _map(delta, obj) {
+function _map(obj, delta) {
 	var keys = Object.keys(delta);
 
 	for (var i = 0, c = keys.length; i < c; i++) {
@@ -2754,13 +2778,47 @@ function _map(delta, obj) {
 		if (k.charAt(0) !== '$') {
 			if (d !== o) {
 				if (bmoor.isObject(d) && bmoor.isObject(o)) {
-					_map(d, o);
+					_map(o, d);
 				} else {
 					obj[k] = d;
 				}
 			}
 		}
 	}
+}
+
+function _flatten(obj, cmp) {
+	var rtn = {};
+
+	if (!cmp) {
+		cmp = Object.getPrototypeOf(obj);
+	}
+
+	Object.keys(cmp).forEach(function (key) {
+		if (key.charAt(0) !== '$') {
+			var v = cmp[key];
+
+			if (bmoor.isObject(v) && !obj.hasOwnProperty(key)) {
+				rtn[key] = bmoor.object.copy({}, v);
+			} else {
+				rtn[key] = v;
+			}
+		}
+	});
+
+	Object.keys(obj).forEach(function (key) {
+		if (key.charAt(0) !== '$') {
+			var v = obj[key];
+
+			if (bmoor.isObject(v)) {
+				rtn[key] = _flatten(v, cmp[key]);
+			} else {
+				rtn[key] = v;
+			}
+		}
+	});
+
+	return rtn;
 }
 
 var Proxy = function (_Eventing) {
@@ -2777,6 +2835,10 @@ var Proxy = function (_Eventing) {
 		return _this;
 	}
 
+	// a 'deep copy' of the datum, but using mask() to have the original
+	// as the object's prototype.
+
+
 	_createClass(Proxy, [{
 		key: 'getMask',
 		value: function getMask(override) {
@@ -2786,6 +2848,38 @@ var Proxy = function (_Eventing) {
 
 			return this.mask;
 		}
+
+		// create a true deep copy of the datum.  if applyMask == true, 
+		// we copy the mask on top as well.  Can be used for stringify then
+
+	}, {
+		key: 'copy',
+		value: function copy(applyMask) {
+			var rtn = {};
+
+			bmoor.object.merge(rtn, this.getDatum());
+			if (applyMask) {
+				bmoor.object.merge(rtn, bmoor.isObject(applyMask) ? applyMask : this.getMask());
+			}
+
+			return rtn;
+		}
+
+		// create a shallow copy of the datum.  if applyMask == true, 
+		// we copy the mask on top as well.  Can be used for stringify then
+
+	}, {
+		key: 'extend',
+		value: function extend(applyMask) {
+			var rtn = {};
+
+			bmoor.object.extend(rtn, this.getDatum());
+			if (applyMask) {
+				bmoor.object.extend(rtn, bmoor.isObject(applyMask) ? applyMask : this.getMask());
+			}
+
+			return rtn;
+		}
 	}, {
 		key: '$',
 		value: function $(path) {
@@ -2794,7 +2888,7 @@ var Proxy = function (_Eventing) {
 	}, {
 		key: 'getChanges',
 		value: function getChanges() {
-			return _getChanges(this.mask, this.getDatum());
+			return _getChanges(this.mask);
 		}
 	}, {
 		key: 'isDirty',
@@ -2806,25 +2900,9 @@ var Proxy = function (_Eventing) {
 		value: function map(delta) {
 			var mask = this.getMask();
 
-			_map(delta, mask);
+			_map(mask, delta);
 
 			return mask;
-		}
-
-		// create a deep copy of the datum.  if applyMask == true, 
-		// we copy the mask on top as well.  Can be used for stringify then
-
-	}, {
-		key: 'copy',
-		value: function copy(applyMask) {
-			var rtn = {};
-
-			bmoor.object.merge(rtn, this.getDatum());
-			if (applyMask) {
-				bmoor.object.merge(rtn, this.getMask());
-			}
-
-			return rtn;
 		}
 	}, {
 		key: 'merge',
@@ -2840,6 +2918,15 @@ var Proxy = function (_Eventing) {
 
 				this.mask = null;
 				this.trigger('update', delta);
+			}
+		}
+	}, {
+		key: 'flatten',
+		value: function flatten(delta) {
+			if (delta) {
+				return _flatten(delta, this.getDatum());
+			} else {
+				return _flatten(this.getMask());
 			}
 		}
 	}, {
@@ -2861,7 +2948,9 @@ var Proxy = function (_Eventing) {
 	return Proxy;
 }(Eventing);
 
+Proxy.map = _map;
 Proxy.isDirty = _isDirty;
+Proxy.flatten = _flatten;
 Proxy.getChanges = _getChanges;
 
 module.exports = Proxy;
