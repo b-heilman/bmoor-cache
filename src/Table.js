@@ -435,7 +435,7 @@ class Table {
 		.then( () => {
 			var proxy;
 
-			if ( from instanceof Proxy ){
+			if ( from instanceof DataProxy ){
 				proxy = from;
 				from = from.getDatum();
 			}else{
