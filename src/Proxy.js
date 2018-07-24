@@ -1,6 +1,68 @@
-var bmoor = require('bmoor'),
+
+const bmoor = require('bmoor'),
 	schema = require('./Schema.js'),
 	DataProxy = require('bmoor-data').object.Proxy;
+
+var _fakeIds = 1,
+	helperMethods = {
+		makeId: function(){
+			return _fakeIds++;
+		}
+	};
+
+function buildConnectors( proxy, joins ){
+	var uid = proxy.getTable().$id(proxy);
+
+	if ( !proxy.connectors ){
+		proxy.connectors = {};
+	}
+
+	Object.keys(joins).forEach( tableName => {
+		var join = joins[tableName],
+			foreignTable = schema.get( tableName );
+
+		if ( join.type === 'child' ){
+			let root = proxy.$(join.path);
+
+			proxy.connectors[tableName] = {
+				insert: function( datum ){
+					if ( root.indexOf(datum) === -1 ){
+						root.push(datum);
+					}
+
+					if ( join.massage ){
+						join.massage(datum, helperMethods);
+					}
+
+					datum.$parentId = uid;
+
+					foreignTable.set( datum );
+				},
+				delete: function( datum ){
+					if ( datum instanceof DataProxy ){
+						root.splice( root.indexOf(datum.getDatum()), 1 );
+					}else{
+						root.splice( root.indexOf(datum), 1 );
+					}
+
+					foreignTable.del( datum );
+				},
+				get: function(){
+					return foreignTable.collection.filter(
+						{ '$parentId': uid },
+						{
+							hash:'child-'+uid
+						}
+					);
+				}
+			};
+		}
+
+		if ( join && join.auto ){
+			proxy.join(tableName);
+		}
+	});
+}
 
 // { join: {table:'', field} }
 class JoinableProxy extends DataProxy {
@@ -12,6 +74,8 @@ class JoinableProxy extends DataProxy {
 		};
 
 		this.joins = {};
+
+		buildConnectors(this, table.joins);
 	}
 
 	onewayJoin( tableName, searchValue ){
@@ -35,7 +99,7 @@ class JoinableProxy extends DataProxy {
 
 			if ( foreignJoin ){
 				let foreignKey = bmoor.isString(foreignJoin) ? 
-					foreignJoin : foreignJoin.field;
+					foreignJoin : foreignJoin.path;
 
 				return foreignTable.select( {[foreignKey]: searchValue} );
 			}else{
@@ -47,10 +111,16 @@ class JoinableProxy extends DataProxy {
 			throw new Error(tableName+' is not a known table');
 		}
 	}
+
+	childJoin( tableName, children ){
+		children.forEach( this.connectors[tableName].insert );
+
+		return this.connectors[tableName].get();
+	}
 	
 	join( tableName ){
 		var type,
-			field,
+			path,
 			rtn = this.joins[tableName],
 			myTable = this.getTable(),
 			joins = myTable.joins,
@@ -59,15 +129,15 @@ class JoinableProxy extends DataProxy {
 		if ( !rtn ){ 
 			if ( bmoor.isObject(join) ){
 				type = join.type;
-				field = join.field;
+				path = join.path;
 			}else{
 				type = 'oneway';
-				field = join;
+				path = join;
 			}
 
 			rtn = this[type+'Join'](
 				tableName,
-				this.$( field )
+				this.$(path)
 			);
 
 			this.joins[tableName] = rtn;
@@ -75,7 +145,7 @@ class JoinableProxy extends DataProxy {
 			throw new Error('Missing join to table: '+tableName);
 		}
 
-		return rtn;
+		return Promise.resolve(rtn);
 	}
 
 	inflate(){
@@ -83,7 +153,7 @@ class JoinableProxy extends DataProxy {
 			keys = Object.keys( joins ),
 			req = [];
 
-		Object.keys( joins ).forEach( (join) => {
+		Object.keys( joins ).forEach( join => {
 			req.push( this.join(join) );
 		});
 

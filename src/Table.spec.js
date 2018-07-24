@@ -463,7 +463,108 @@ describe('bmoor-cache::Table', function(){
 		});
 	});
 
-	describe('CacheProxy :: table joining', function(){
+	describe('CacheProxy :: table joining - child', function(){
+		var table1,
+			table2;
+
+		beforeEach(function(){
+			table1 = new Table('test1',{
+				id: 'id',
+				proxyFactory: function( datum, parent ){
+					return new CacheProxy( datum, parent );
+				},
+				joins: {
+					'test2': {
+						type: 'child',
+						path: 'links',
+						massage: function( obj, help ){
+							obj.id = help.makeId();
+						},
+						auto: true
+					}
+				}
+			});
+			table2 = new Table('test2',{
+				id: 'id',
+				proxyFactory: function( datum, parent ){
+					return new CacheProxy( datum, parent );
+				}
+			});
+			
+			table1.set({
+				id: 'ok',
+				hello: 1,
+				links: [{
+					foo: 'bar'
+				}]
+			});
+
+			table1.set({
+				id: 'ok2',
+				hello: 1,
+				links: [{
+					foo: 'bar2'
+				},{
+					foo: 'bar3'
+				}]
+			});
+		});
+
+		it('should automatically populate child table', function(){
+			expect( table2.collection.data.length ).toBe( 3 );
+		});
+
+		it('should add a sub collection tot he proxy', function( done ){
+			table1.find('ok').join('test2')
+			.then( p => {
+				expect( p.data.length ).toBe( 1 );
+
+				return table1.find('ok2').join('test2')
+				.then( p => {
+					expect( p.data.length ).toBe( 2 );
+				});
+			})
+			.then( done, done );
+		});
+
+		it('should generate an connector for inserting data', function( done ){
+			table1.find('ok').connectors.test2
+				.insert({foo: 'bar3'});
+
+			table1.find('ok2').connectors.test2
+				.insert({foo: 'bar4'});
+
+			table1.find('ok').join('test2')
+			.then( p => {
+				expect( p.data.length ).toBe( 2 );
+
+				return table1.find('ok2').join('test2')
+				.then( p => {
+					expect( p.data.length ).toBe( 3 );
+				});
+			})
+			.then( done, done );
+		});
+
+		it('should generate an connector for deleting data', function( done ){
+			table1.find('ok2').join('test2')
+			.then( p => {
+				table1.find('ok2').connectors.test2
+					.delete(p.data[0]);
+
+				expect( p.data.length ).toBe( 1 );
+				expect( table2.collection.data.length ).toBe( 2 );
+			})
+			.then( done, (ex) => {
+				console.log( ex.message );
+				console.log( ex );
+
+				done();
+			});
+		});
+	});
+
+	describe('CacheProxy :: table joining - oneway / twoway', function(){
 		var table,
 			table2,
 			table3,
@@ -483,11 +584,11 @@ describe('bmoor-cache::Table', function(){
 					update: '/test/update/{{id}}'
 				}),
 				joins: {
-					'test2': 'value2',
+					'test2': 'value2', // oneway
 					'test3': 'value3',
 					'test4': {
 						type: 'twoway',
-						field: 'id'
+						path: 'id'
 					}
 				}
 			});
@@ -531,7 +632,7 @@ describe('bmoor-cache::Table', function(){
 					}
 				}),
 				joins: {
-					'test1': 'foreignId'
+					'test1': 'foreignId' // becomes one way
 				}
 			});
 

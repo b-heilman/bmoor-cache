@@ -2,14 +2,15 @@ const bmoor = require('bmoor'),
 	schema = require('./Schema.js'),
 	Test = require('bmoor-data').object.Test,
 	DataProxy = require('bmoor-data').object.Proxy,
-	DataCollection = require('bmoor-data').Collection;
+	// DataCollection = require('bmoor-data').Collection,
+	ProxiedCollection = require('bmoor-data').collection.Proxied;
 
 var defaultSettings = {
 		proxyFactory: function( datum ){
 			return new DataProxy( datum );
 		},
 		collectionFactory: function(){
-			return new DataCollection();
+			return new ProxiedCollection();
 		}
 	};
 
