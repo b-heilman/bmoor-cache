@@ -1,10 +1,11 @@
+
 module.exports = {
 	mockery: {
 		Wrapper: require('./src/mockery/Wrapper.js'),
 		Schema: require('./src/mockery/Schema.js')
 	},
-	Schema: require('./src/Schema.js'),
 	Table: require('./src/Table.js'),
-	Proxy: require('./src/Proxy.js'),
+	table: require('./src/table/index.js'),
+	object: require('./src/object/index.js'),
 	Collection: require('./src/Collection.js')
 };

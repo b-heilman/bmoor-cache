@@ -61,7 +61,7 @@ var bmoorCache =
 /******/ 	__webpack_require__.p = "";
 /******/
 /******/ 	// Load entry module and return exports
-/******/ 	return __webpack_require__(__webpack_require__.s = 13);
+/******/ 	return __webpack_require__(__webpack_require__.s = 15);
 /******/ })
 /************************************************************************/
 /******/ ([
@@ -79,13 +79,13 @@ module.exports = bmoor;
 
 module.exports = {
 	Feed: __webpack_require__(6),
-	Pool: __webpack_require__(17),
+	Pool: __webpack_require__(19),
 	Collection: __webpack_require__(8),
 	collection: {
-		Proxied: __webpack_require__(33)
+		Proxied: __webpack_require__(35)
 	},
 	stream: {
-		Converter: __webpack_require__(34)
+		Converter: __webpack_require__(36)
 	},
 	object: {
 		Proxy: __webpack_require__(11),
@@ -93,7 +93,7 @@ module.exports = {
 		Hash: __webpack_require__(9)
 	},
 	structure: {
-		Model: __webpack_require__(35).default,
+		Model: __webpack_require__(37).default,
 		Schema: __webpack_require__(12).default
 	}
 };
@@ -113,8 +113,8 @@ var bmoor = __webpack_require__(0),
     makeGetter = bmoor.makeGetter,
 
 // makeSetter = bmoor.makeSetter,
-Writer = __webpack_require__(23).default,
-    Reader = __webpack_require__(24).default,
+Writer = __webpack_require__(25).default,
+    Reader = __webpack_require__(26).default,
     Tokenizer = __webpack_require__(4).default;
 
 var Path = function () {
@@ -181,7 +181,9 @@ module.exports = Path;
 "use strict";
 
 
-module.exports = __webpack_require__(0).Memory.use('cache-table-schema');
+module.exports = {
+	default: __webpack_require__(0).Memory.use('cache-table-schema')
+};
 
 /***/ }),
 /* 4 */
@@ -711,13 +713,13 @@ var bmoor = __webpack_require__(0),
     Feed = __webpack_require__(6),
     Hash = __webpack_require__(9),
     Test = __webpack_require__(10),
-    _route = __webpack_require__(26).fn,
-    _index = __webpack_require__(27).fn,
-    filter = __webpack_require__(28).fn,
-    _sorted = __webpack_require__(29).fn,
-    mapped = __webpack_require__(30).fn,
-    testStack = __webpack_require__(31).test,
-    memorized = __webpack_require__(32).memorized;
+    _route = __webpack_require__(28).fn,
+    _index = __webpack_require__(29).fn,
+    filter = __webpack_require__(30).fn,
+    _sorted = __webpack_require__(31).fn,
+    mapped = __webpack_require__(32).fn,
+    testStack = __webpack_require__(33).test,
+    memorized = __webpack_require__(34).memorized;
 
 var Collection = function (_Feed) {
 	_inherits(Collection, _Feed);
@@ -1567,7 +1569,280 @@ module.exports = {
 "use strict";
 
 
-module.exports = __webpack_require__(14);
+var _slicedToArray = function () { function sliceIterator(arr, i) { var _arr = []; var _n = true; var _d = false; var _e = undefined; try { for (var _i = arr[Symbol.iterator](), _s; !(_n = (_s = _i.next()).done); _n = true) { _arr.push(_s.value); if (i && _arr.length === i) break; } } catch (err) { _d = true; _e = err; } finally { try { if (!_n && _i["return"]) _i["return"](); } finally { if (_d) throw _e; } } return _arr; } return function (arr, i) { if (Array.isArray(arr)) { return arr; } else if (Symbol.iterator in Object(arr)) { return sliceIterator(arr, i); } else { throw new TypeError("Invalid attempt to destructure non-iterable instance"); } }; }();
+
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+var bmoor = __webpack_require__(0),
+    DataProxy = __webpack_require__(1).object.Proxy,
+    Schema = __webpack_require__(3).default;
+
+/*
+Object.keys(joins).forEach( tableName => {
+	var join = joins[tableName],
+		foreignTable = schema.get( tableName );
+
+	if ( join.type === 'child' ){
+		let root = proxy.$(join.path);
+
+		proxy.connectors[tableName] = {
+			insert: function( datum ){
+				if ( root.indexOf(datum) === -1 ){
+					root.push(datum);
+				}
+
+				if ( join.massage ){
+					join.massage(datum, helperMethods);
+				}
+
+				datum.$parentId = uid;
+
+				foreignTable.set( datum );
+			},
+			delete: function( datum ){
+				if ( datum instanceof DataProxy ){
+					root.splice( root.indexOf(datum.getDatum()), 1 );
+				}else{
+					root.splice( root.indexOf(datum), 1 );
+				}
+
+				foreignTable.del( datum );
+			},
+			get: function(){
+				return foreignTable.collection.filter(
+					{ '$parentId': uid },
+					{
+						hash:'child-'+uid
+					}
+				);
+			}
+		};
+	}
+
+	if ( join && join.auto ){
+		proxy.join(tableName);
+	}
+});
+*/
+function stack(old, fn) {
+	if (!old) {
+		return function (datum, onload, name) {
+			return [fn(datum, onload, name)];
+		};
+	} else {
+		return function (datum, onload, name) {
+			var rtn = old(datum, onload, name);
+
+			rtn.push(fn(datum, onload, name));
+
+			return rtn;
+		};
+	}
+}
+
+/**
+	key: path on the local datum whose value should be used
+	sibling: foreign reference table
+	target: mount position of the collection on local datum
+	type: relationship type [one,many]
+	link: link object for more info
+**/
+function linkFn(key, sibling, target, type, link) {
+	return {
+		add: function add(datum, onload, name) {
+			var proxy = null;
+
+			if (name && sibling.name !== name) {
+				return;
+			}
+
+			if (onload && !link.auto) {
+				return;
+			}
+
+			if (datum instanceof DataProxy) {
+				proxy = datum;
+				datum = datum.getDatum();
+			}
+
+			// no need to load this if it's already been called
+			if (!bmoor.get(proxy || datum, '$links.' + target)) {
+				var src = bmoor.get(datum, key),
+				    rtn = sibling[type === 'many' ? 'getMany' : 'get'](src);
+
+				rtn.then(function (res) {
+					bmoor.set(proxy || datum, '$links.' + target, res);
+
+					return res;
+				});
+
+				return rtn;
+			}
+		}
+	};
+}
+
+/**
+	key: path on the local datum whose value should be used
+	child: foreign reference table
+	target: mount position on foreign datum to put back reference
+	type: relationship type [one,many]
+	link: link object for more info
+**/
+function childFn(key, child, target, type, link) {
+	return {
+		add: function add(datum, onload, name) {
+			var proxy = null;
+
+			if (name && target.name !== name) {
+				return;
+			}
+
+			if (onload && !link.auto) {
+				return;
+			}
+
+			if (datum instanceof DataProxy) {
+				proxy = datum;
+				datum = datum.getDatum();
+			}
+
+			// link back to the original datum
+			var fn = function fn(value) {
+				if (link.massage) {
+					value = link.massage(value);
+				}
+
+				if (link.filter && !link.filter(value)) {
+					return;
+				}
+
+				return child.set(value).then(function (res) {
+					// back reference
+					console.log('---- backref -----');
+					console.log(res.getDatum());
+
+					bmoor.set(res, '$links.' + target, // mount on $links property
+					proxy || datum);
+
+					return res;
+				});
+			},
+			    values = bmoor.get(datum, key);
+
+			/*
+   	I'm pushing to the table's name, shouldn't conflict
+   	because you can only have one child with the same name
+   	I'm sure someone will find a way to prove me wrong
+   */
+			if (type === 'one') {
+				return fn(values).then(function (res) {
+					bmoor.set(proxy || datum, '$links.' + child.name, res);
+
+					return res;
+				});
+			} else {
+				return Promise.all(values.map(fn)).then(function (res) {
+					var collection = child.collectionFactory(res);
+
+					console.log('----- many -----');
+					bmoor.set(proxy || datum, '$links.' + child.name, collection);
+
+					return res;
+				});
+			}
+		}
+	};
+}
+
+/*
+links: [{
+	type: [child,link] - [one,many]
+	table:  // where connecting to
+	key: 
+	target: //
+	massage:
+	filter:
+	auto:
+}]
+*/
+
+var Linker = function () {
+	function Linker(table, links) {
+		var _this = this;
+
+		_classCallCheck(this, Linker);
+
+		this.table = table;
+
+		if (links) {
+			links.forEach(function (link) {
+				var _link$type$split = link.type.split('-'),
+				    _link$type$split2 = _slicedToArray(_link$type$split, 2),
+				    relationship = _link$type$split2[0],
+				    type = _link$type$split2[1];
+
+				if (relationship === 'child') {
+					var parent = Schema.get(link.table);
+
+					parent.linker.setChild(link.key, _this.table, link.target, type, link);
+				} else {
+					_this.setLink(link.key, Schema.get(link.table), link.target, type, link);
+				}
+			});
+		}
+	}
+
+	_createClass(Linker, [{
+		key: 'setChild',
+		value: function setChild(key, child, target, type, link) {
+			var methods = childFn(key, child, target, type, link);
+
+			this.onAdd = stack(this.onAdd, methods.add);
+		}
+	}, {
+		key: 'setLink',
+		value: function setLink(key, sibling, target, type, link) {
+			var methods = linkFn(key, sibling, target, type, link);
+
+			this.onAdd = stack(this.onAdd, methods.add);
+		}
+	}, {
+		key: 'add',
+		value: function add(obj) {
+			if (obj.setLinker) {
+				obj.setLinker(this);
+			}
+
+			if (this.onAdd) {
+				return Promise.all(this.onAdd(obj, true)).then(function () {
+					return obj;
+				});
+			} else {
+				return Promise.resolve(obj);
+			}
+		}
+	}, {
+		key: 'link',
+		value: function link(obj, name) {
+			if (this.onAdd) {
+				return Promise.all(this.onAdd(obj, false, name)).then(function () {
+					return obj.$links;
+				});
+			} else {
+				return Promise.resolve(null);
+			}
+		}
+	}]);
+
+	return Linker;
+}();
+
+module.exports = {
+	default: Linker
+};
 
 /***/ }),
 /* 14 */
@@ -1576,19 +1851,80 @@ module.exports = __webpack_require__(14);
 "use strict";
 
 
+var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
+
+function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
+
+var DataProxy = __webpack_require__(1).object.Proxy;
+
+// { join: {table:'', field} }
+
+var JoinableProxy = function (_DataProxy) {
+	_inherits(JoinableProxy, _DataProxy);
+
+	function JoinableProxy() {
+		_classCallCheck(this, JoinableProxy);
+
+		return _possibleConstructorReturn(this, (JoinableProxy.__proto__ || Object.getPrototypeOf(JoinableProxy)).apply(this, arguments));
+	}
+
+	_createClass(JoinableProxy, [{
+		key: 'setLinker',
+		value: function setLinker(linker) {
+			this.linker = linker;
+		}
+	}, {
+		key: 'link',
+		value: function link(tableName) {
+			return this.linker.link(this, tableName);
+		}
+	}, {
+		key: 'inflate',
+		value: function inflate() {
+			return this.linker.link(this);
+		}
+	}]);
+
+	return JoinableProxy;
+}(DataProxy);
+
 module.exports = {
-	mockery: {
-		Wrapper: __webpack_require__(15),
-		Schema: __webpack_require__(5)
-	},
-	Schema: __webpack_require__(3),
-	Table: __webpack_require__(16),
-	Proxy: __webpack_require__(37),
-	Collection: __webpack_require__(38)
+	default: JoinableProxy
 };
 
 /***/ }),
 /* 15 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+module.exports = __webpack_require__(16);
+
+/***/ }),
+/* 16 */
+/***/ (function(module, exports, __webpack_require__) {
+
+"use strict";
+
+
+module.exports = {
+	mockery: {
+		Wrapper: __webpack_require__(17),
+		Schema: __webpack_require__(5)
+	},
+	Table: __webpack_require__(18),
+	table: __webpack_require__(39),
+	object: __webpack_require__(40),
+	Collection: __webpack_require__(41)
+};
+
+/***/ }),
+/* 17 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -1688,7 +2024,7 @@ var Wrapper = function () {
 module.exports = Wrapper;
 
 /***/ }),
-/* 16 */
+/* 18 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -1699,19 +2035,19 @@ var _createClass = function () { function defineProperties(target, props) { for 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 var bmoor = __webpack_require__(0),
-    schema = __webpack_require__(3),
+    schema = __webpack_require__(3).default,
     Test = __webpack_require__(1).object.Test,
+    Linker = __webpack_require__(13).default,
     DataProxy = __webpack_require__(1).object.Proxy,
-
-// DataCollection = require('bmoor-data').Collection,
-ProxiedCollection = __webpack_require__(1).collection.Proxied;
+    CacheProxy = __webpack_require__(14).default,
+    ProxiedCollection = __webpack_require__(1).collection.Proxied;
 
 var defaultSettings = {
 	proxyFactory: function proxyFactory(datum) {
-		return new DataProxy(datum);
+		return new CacheProxy(datum);
 	},
-	collectionFactory: function collectionFactory() {
-		return new ProxiedCollection();
+	collectionFactory: function collectionFactory(src) {
+		return new ProxiedCollection(src);
 	}
 };
 
@@ -1737,8 +2073,6 @@ var Table = function () {
 		this.name = name;
 		this.connector = ops.connector;
 
-		this.joins = ops.joins || {};
-
 		if (ops.proxy && !ops.proxyFactory) {
 			console.warn('ops.proxy will be deprecated in next major version');
 			ops.proxyFactory = function (datum) {
@@ -1747,13 +2081,15 @@ var Table = function () {
 		}
 
 		this.proxyFactory = ops.proxyFactory || defaultSettings.proxyFactory;
+
 		this.collectionFactory = ops.collectionFactory || defaultSettings.collectionFactory;
 
 		if (!ops.id) {
 			throw new Error('bmoor-comm::Table requires a id field of function');
 		}
 
-		// If performance matters, use bmoor-data's Proxy
+		this.linker = new Linker(this, ops.links);
+
 		this.before = ops.before || function () {
 			return Promise.resolve(true);
 		};
@@ -1816,7 +2152,7 @@ var Table = function () {
 	_createClass(Table, [{
 		key: 'reset',
 		value: function reset() {
-			this.collection = this.collectionFactory(this);
+			this.collection = this.collectionFactory();
 			this.index = this.collection.index(this.$id);
 			this._selections = {};
 
@@ -1850,42 +2186,32 @@ var Table = function () {
 					t.merge(delta || obj);
 				} else {
 					this.normalize(obj);
-					t = this.proxyFactory(obj, this);
+					t = this.proxyFactory(obj);
 
 					this.collection.add(t);
 				}
 
-				return {
-					id: id,
-					ref: t
-				};
+				if (this.gotten) {
+					this.gotten[id] = true;
+				}
+
+				if (this.linker) {
+					return this.linker.add(t);
+				} else {
+					return Promise.resolve(t);
+				}
 			} else {
 				throw new Error('missing id for object: ' + JSON.stringify(obj));
 			}
 		}
-
-		// Used to check if that datum has been specifically fetched
-
-	}, {
-		key: '_set',
-		value: function _set(obj) {
-			var t = this.set(obj);
-
-			// TODO : I might want to time out the gotten cache
-			if (this.gotten) {
-				this.gotten[t.id] = true;
-			}
-
-			return t.ref;
-		}
 	}, {
 		key: 'consume',
 		value: function consume(arr) {
-			var i, c;
+			var _this2 = this;
 
-			for (i = 0, c = arr.length; i < c; i++) {
-				this.set(arr[i]);
-			}
+			return Promise.all(arr.map(function (d) {
+				return _this2.set(d);
+			}));
 		}
 	}, {
 		key: 'del',
@@ -1902,7 +2228,7 @@ var Table = function () {
 	}, {
 		key: 'get',
 		value: function get(obj, options) {
-			var _this2 = this;
+			var _this3 = this;
 
 			var fetch;
 
@@ -1922,41 +2248,41 @@ var Table = function () {
 						list: [obj],
 						promise: new Promise(function (resolve, reject) {
 							setTimeout(function () {
-								var batched = _this2.batched;
+								var batched = _this3.batched;
 
-								_this2.batched = null;
+								_this3.batched = null;
 
-								return _this2.getMany(batched.list).then(resolve, reject);
+								return _this3.getMany(batched.list).then(resolve, reject);
 							}, batch);
 						})
 					};
 				}
 
 				var res = this.batched.promise.then(function () {
-					return _this2.find(obj);
+					return _this3.find(obj);
 				});
 				fetch = function fetch() {
 					return res;
 				};
 			} else {
 				fetch = function fetch() {
-					return _this2.connector.read(_this2.$encode(obj), null, options).then(function (res) {
+					return _this3.connector.read(_this3.$encode(obj), null, options).then(function (res) {
 						if (options.hook) {
 							options.hook(res);
 						}
 
-						return _this2._set(res);
+						return _this3.set(res);
 					});
 				};
 			}
 
 			return this.before('get').then(function () {
-				var t = _this2.find(obj);
+				var t = _this3.find(obj);
 
 				if (!t || options && options.cached === false) {
 					return fetch(obj);
 				} else {
-					if (_this2.gotten && !_this2.gotten[_this2.$id(obj)]) {
+					if (_this3.gotten && !_this3.gotten[_this3.$id(obj)]) {
 						return fetch(obj);
 					} else {
 						return t;
@@ -1979,26 +2305,26 @@ var Table = function () {
 			return this.get(obj, options);
 		}
 	}, {
-		key: '_setMany',
-		value: function _setMany(prom, ids, hook) {
-			var _this3 = this;
+		key: 'setMany',
+		value: function setMany(prom, ids, hook) {
+			var _this4 = this;
 
 			var rtn = prom.then(function (res) {
 				if (hook) {
 					hook(res);
 				}
 
-				return res.map(function (r) {
-					return _this3._set(r);
-				});
+				return Promise.all(res.map(function (r) {
+					return _this4.set(r);
+				}));
 			});
 
 			return rtn.then(function (res) {
-				var collection = _this3.collectionFactory(_this3);
+				var collection = _this4.collectionFactory();
 
 				if (ids) {
 					ids.forEach(function (id, i) {
-						collection.data[i] = _this3.index.get(id);
+						collection.data[i] = _this4.index.get(id);
 					});
 				} else {
 					res.forEach(function (p, i) {
@@ -2012,16 +2338,16 @@ var Table = function () {
 	}, {
 		key: 'fetch',
 		value: function fetch(qry, options) {
-			var _this4 = this;
+			var _this5 = this;
 
 			if (!options) {
 				options = {};
 			}
 
 			return this.before('fetch', qry).then(function () {
-				var rtn = _this4.connector.query(qry, null, options);
+				var rtn = _this5.connector.query(qry, null, options);
 
-				return _this4._setMany(rtn, null, options.hook);
+				return _this5.setMany(rtn, null, options.hook);
 			});
 		}
 
@@ -2030,7 +2356,7 @@ var Table = function () {
 	}, {
 		key: 'getMany',
 		value: function getMany(arr, options) {
-			var _this5 = this;
+			var _this6 = this;
 
 			if (!options) {
 				options = {};
@@ -2042,24 +2368,24 @@ var Table = function () {
 				    req = [];
 
 				// reduce the list using gotten
-				if (_this5.gotten) {
+				if (_this6.gotten) {
 					arr.forEach(function (r) {
-						var t = _this5.$id(r);
+						var t = _this6.$id(r);
 
 						all.push(t);
 
-						if (!_this5.gotten[t]) {
-							req.push(_this5.$encode(r));
+						if (!_this6.gotten[t]) {
+							req.push(_this6.$encode(r));
 						}
 					});
 				} else {
 					arr.forEach(function (r) {
-						var t = _this5.$id(r);
+						var t = _this6.$id(r);
 
 						all.push(t);
 
-						if (!_this5.index.get(t)) {
-							req.push(_this5.$encode(r));
+						if (!_this6.index.get(t)) {
+							req.push(_this6.$encode(r));
 						}
 					});
 				}
@@ -2067,12 +2393,12 @@ var Table = function () {
 				if (req.length) {
 					// this works because I can assume id was defined for 
 					// the feed
-					if (_this5.connector.readMany) {
-						rtn = _this5.connector.readMany(req, null, options);
+					if (_this6.connector.readMany) {
+						rtn = _this6.connector.readMany(req, null, options);
 					} else {
 						// The feed doesn't have readMany, so many reads will work
 						req.forEach(function (id, i) {
-							req[i] = _this5.connector.read(id, null, options);
+							req[i] = _this6.connector.read(id, null, options);
 						});
 						rtn = Promise.all(req);
 					}
@@ -2080,7 +2406,7 @@ var Table = function () {
 					rtn = Promise.resolve([]); // nothing to do
 				}
 
-				return _this5._setMany(rtn, all, options.hook);
+				return _this6.setMany(rtn, all, options.hook);
 			});
 		}
 
@@ -2091,26 +2417,26 @@ var Table = function () {
 	}, {
 		key: 'all',
 		value: function all(obj, options) {
-			var _this6 = this;
+			var _this7 = this;
 
 			if (!options) {
 				options = {};
 			}
 
 			return this.before('all').then(function () {
-				if (!_this6.$all || options.cached === false) {
-					_this6.$all = _this6.connector.all(obj, null, options).then(function (res) {
+				if (!_this7.$all || options.cached === false) {
+					_this7.$all = _this7.connector.all(obj, null, options).then(function (res) {
 						if (options.hook) {
 							options.hook(res);
 						}
 
-						_this6.consume(res);
+						_this7.consume(res);
 
-						return _this6.collection;
+						return _this7.collection;
 					});
 				}
 
-				return _this6.$all;
+				return _this7.$all;
 			});
 		}
 
@@ -2119,19 +2445,19 @@ var Table = function () {
 	}, {
 		key: 'insert',
 		value: function insert(obj, options) {
-			var _this7 = this;
+			var _this8 = this;
 
 			if (!options) {
 				options = {};
 			}
 
 			return this.before('insert', obj).then(function () {
-				var t = _this7.find(obj);
+				var t = _this8.find(obj);
 
 				if (t) {
 					throw new Error('This already exists ' + JSON.stringify(obj));
 				} else {
-					return _this7.connector.create(obj, obj, options).then(function (res) {
+					return _this8.connector.create(obj, obj, options).then(function (res) {
 						if (options.hook) {
 							options.hook(res);
 						}
@@ -2148,13 +2474,13 @@ var Table = function () {
 							}
 						}
 
-						var proxy = _this7.set(datum).ref;
+						return _this8.set(datum).then(function (proxy) {
+							if (options.useProto) {
+								proxy.merge(obj);
+							}
 
-						if (options.useProto) {
-							proxy.merge(obj);
-						}
-
-						return proxy;
+							return proxy;
+						});
 					});
 				}
 			});
@@ -2166,7 +2492,7 @@ var Table = function () {
 	}, {
 		key: 'update',
 		value: function update(from, delta, options) {
-			var _this8 = this;
+			var _this9 = this;
 
 			if (!options) {
 				options = {};
@@ -2179,8 +2505,8 @@ var Table = function () {
 					proxy = from;
 					from = from.getDatum();
 				} else {
-					from = _this8.$encode(from);
-					proxy = _this8.find(from);
+					from = _this9.$encode(from);
+					proxy = _this9.find(from);
 				}
 
 				if (!delta) {
@@ -2188,7 +2514,7 @@ var Table = function () {
 				}
 
 				if (proxy && delta) {
-					return _this8.connector.update(from, delta, options).then(function (res) {
+					return _this9.connector.update(from, delta, options).then(function (res) {
 						if (options.hook) {
 							options.hook(res);
 						}
@@ -2214,24 +2540,24 @@ var Table = function () {
 	}, {
 		key: 'delete',
 		value: function _delete(obj, options) {
-			var _this9 = this;
+			var _this10 = this;
 
 			if (!options) {
 				options = {};
 			}
 
 			return this.before('delete', obj).then(function () {
-				var proxy = _this9.find(obj);
+				var proxy = _this10.find(obj);
 
 				if (proxy) {
 					var datum = proxy.getDatum();
 
-					return _this9.connector.delete(datum, datum, options).then(function (res) {
+					return _this10.connector.delete(datum, datum, options).then(function (res) {
 						if (options.hook) {
 							options.hook(res);
 						}
 
-						_this9.del(obj);
+						_this10.del(obj);
 
 						return proxy;
 					});
@@ -2246,24 +2572,24 @@ var Table = function () {
 	}, {
 		key: 'select',
 		value: function select(qry, options) {
-			var _this10 = this;
+			var _this11 = this;
 
 			return this.before('select', qry).then(function () {
 				var op,
 				    rtn,
 				    test,
 				    selection,
-				    selections = _this10._selections;
+				    selections = _this11._selections;
 
 				if (!options) {
 					options = {};
 				}
 
-				_this10.normalize(qry);
+				_this11.normalize(qry);
 
 				test = options instanceof Test ? options : options.test || new Test(options.fn || qry, {
 					hash: options.hash,
-					massage: options.massage || _this10.$datum
+					massage: options.massage || _this11.$datum
 				});
 				selection = selections[test.hash];
 
@@ -2273,8 +2599,8 @@ var Table = function () {
 					return selection.filter;
 				}
 
-				if (_this10.connector.search) {
-					rtn = _this10.connector.search(qry, // variables
+				if (_this11.connector.search) {
+					rtn = _this11.connector.search(qry, // variables
 					null, // no datum to send
 					options // allow more fine tuned management
 					).then(function (res) {
@@ -2282,10 +2608,10 @@ var Table = function () {
 							options.hook(res);
 						}
 
-						_this10.consume(res);
+						_this11.consume(res);
 					});
 				} else {
-					rtn = _this10.all(qry, options);
+					rtn = _this11.all(qry, options);
 				}
 
 				if (selection) {
@@ -2297,7 +2623,7 @@ var Table = function () {
 				} else {
 					selections[test.hash] = op = {
 						filter: rtn.then(function () {
-							var res = _this10.collection.filter(test),
+							var res = _this11.collection.filter(test),
 							    disconnect = res.disconnect;
 
 							res.disconnect = function () {
@@ -2329,7 +2655,7 @@ Table.settings = defaultSettings;
 module.exports = Table;
 
 /***/ }),
-/* 17 */
+/* 19 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2347,7 +2673,7 @@ var bmoor = __webpack_require__(0),
     Eventing = bmoor.Eventing,
     getUid = bmoor.data.getUid,
     makeGetter = bmoor.makeGetter,
-    Mapper = __webpack_require__(18).Mapper;
+    Mapper = __webpack_require__(20).Mapper;
 
 var Pool = function (_Eventing) {
 	_inherits(Pool, _Eventing);
@@ -2404,37 +2730,37 @@ var Pool = function (_Eventing) {
 module.exports = Pool;
 
 /***/ }),
-/* 18 */
+/* 20 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
 
 
 module.exports = {
-	encode: __webpack_require__(19),
-	Mapper: __webpack_require__(22),
+	encode: __webpack_require__(21),
+	Mapper: __webpack_require__(24),
 	Mapping: __webpack_require__(7),
 	Path: __webpack_require__(2),
 	path: {
 		Tokenizer: __webpack_require__(4).default
 	},
-	validate: __webpack_require__(25)
+	validate: __webpack_require__(27)
 };
 
 /***/ }),
-/* 19 */
+/* 21 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
 
 
 module.exports = {
-    bmoorSchema: __webpack_require__(20).default,
-    jsonSchema: __webpack_require__(21).default
+    bmoorSchema: __webpack_require__(22).default,
+    jsonSchema: __webpack_require__(23).default
 };
 
 /***/ }),
-/* 20 */
+/* 22 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2557,7 +2883,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 21 */
+/* 23 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2706,7 +3032,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 22 */
+/* 24 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2791,7 +3117,7 @@ var Mapper = function () {
 module.exports = Mapper;
 
 /***/ }),
-/* 23 */
+/* 25 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2822,7 +3148,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 24 */
+/* 26 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2853,7 +3179,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 25 */
+/* 27 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2908,7 +3234,7 @@ validate.$ops = tests;
 module.exports = validate;
 
 /***/ }),
-/* 26 */
+/* 28 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -2980,7 +3306,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 27 */
+/* 29 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3024,7 +3350,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 28 */
+/* 30 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3075,7 +3401,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 29 */
+/* 31 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3128,7 +3454,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 30 */
+/* 32 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3180,7 +3506,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 31 */
+/* 33 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3203,7 +3529,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 32 */
+/* 34 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3248,7 +3574,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 33 */
+/* 35 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3417,7 +3743,7 @@ Proxied.settings = defaultSettings;
 module.exports = Proxied;
 
 /***/ }),
-/* 34 */
+/* 36 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3558,7 +3884,7 @@ var Converter = function (_Eventing) {
 module.exports = Converter;
 
 /***/ }),
-/* 35 */
+/* 37 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3570,7 +3896,7 @@ function _classCallCheck(instance, Constructor) { if (!(instance instanceof Cons
 
 var bmoor = __webpack_require__(0),
     schema = __webpack_require__(12),
-    Join = __webpack_require__(36).Join;
+    Join = __webpack_require__(38).Join;
 
 /*
 /models
@@ -3710,7 +4036,7 @@ module.exports = {
 };
 
 /***/ }),
-/* 36 */
+/* 38 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
@@ -3756,203 +4082,30 @@ module.exports = {
 };
 
 /***/ }),
-/* 37 */
+/* 39 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";
 
 
-var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
-
-function _defineProperty(obj, key, value) { if (key in obj) { Object.defineProperty(obj, key, { value: value, enumerable: true, configurable: true, writable: true }); } else { obj[key] = value; } return obj; }
-
-function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
-
-function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
-
-function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
-
-var bmoor = __webpack_require__(0),
-    schema = __webpack_require__(3),
-    DataProxy = __webpack_require__(1).object.Proxy;
-
-var _fakeIds = 1,
-    helperMethods = {
-	makeId: function makeId() {
-		return _fakeIds++;
-	}
+module.exports = {
+	Schema: __webpack_require__(3).default,
+	Linker: __webpack_require__(13).default
 };
 
-function buildConnectors(proxy, joins) {
-	var uid = proxy.getTable().$id(proxy);
+/***/ }),
+/* 40 */
+/***/ (function(module, exports, __webpack_require__) {
 
-	if (!proxy.connectors) {
-		proxy.connectors = {};
-	}
+"use strict";
 
-	Object.keys(joins).forEach(function (tableName) {
-		var join = joins[tableName],
-		    foreignTable = schema.get(tableName);
 
-		if (join.type === 'child') {
-			var root = proxy.$(join.path);
-
-			proxy.connectors[tableName] = {
-				insert: function insert(datum) {
-					if (root.indexOf(datum) === -1) {
-						root.push(datum);
-					}
-
-					if (join.massage) {
-						join.massage(datum, helperMethods);
-					}
-
-					datum.$parentId = uid;
-
-					foreignTable.set(datum);
-				},
-				delete: function _delete(datum) {
-					if (datum instanceof DataProxy) {
-						root.splice(root.indexOf(datum.getDatum()), 1);
-					} else {
-						root.splice(root.indexOf(datum), 1);
-					}
-
-					foreignTable.del(datum);
-				},
-				get: function get() {
-					return foreignTable.collection.filter({ '$parentId': uid }, {
-						hash: 'child-' + uid
-					});
-				}
-			};
-		}
-
-		if (join && join.auto) {
-			proxy.join(tableName);
-		}
-	});
-}
-
-// { join: {table:'', field} }
-
-var JoinableProxy = function (_DataProxy) {
-	_inherits(JoinableProxy, _DataProxy);
-
-	function JoinableProxy(datum, table) {
-		_classCallCheck(this, JoinableProxy);
-
-		var _this = _possibleConstructorReturn(this, (JoinableProxy.__proto__ || Object.getPrototypeOf(JoinableProxy)).call(this, datum));
-
-		_this.getTable = function () {
-			// prevent circular 
-			return table;
-		};
-
-		_this.joins = {};
-
-		buildConnectors(_this, table.joins);
-		return _this;
-	}
-
-	_createClass(JoinableProxy, [{
-		key: 'onewayJoin',
-		value: function onewayJoin(tableName, searchValue) {
-			var foreignTable = schema.get(tableName);
-
-			if (foreignTable) {
-				return bmoor.isArray(searchValue) ? foreignTable.getMany(searchValue) : foreignTable.get(searchValue);
-			} else {
-				throw new Error(tableName + ' is not a known table');
-			}
-		}
-	}, {
-		key: 'twowayJoin',
-		value: function twowayJoin(tableName, searchValue) {
-			var foreignTable = schema.get(tableName);
-
-			if (foreignTable) {
-				var myTable = this.getTable().name,
-				    foreignJoin = foreignTable.joins[myTable];
-
-				if (foreignJoin) {
-					var foreignKey = bmoor.isString(foreignJoin) ? foreignJoin : foreignJoin.path;
-
-					return foreignTable.select(_defineProperty({}, foreignKey, searchValue));
-				} else {
-					throw new Error('Can not twoway join to ' + tableName + ', no back join found');
-				}
-			} else {
-				throw new Error(tableName + ' is not a known table');
-			}
-		}
-	}, {
-		key: 'childJoin',
-		value: function childJoin(tableName, children) {
-			children.forEach(this.connectors[tableName].insert);
-
-			return this.connectors[tableName].get();
-		}
-	}, {
-		key: 'join',
-		value: function join(tableName) {
-			var type,
-			    path,
-			    rtn = this.joins[tableName],
-			    myTable = this.getTable(),
-			    joins = myTable.joins,
-			    join = joins[tableName];
-
-			if (!rtn) {
-				if (bmoor.isObject(join)) {
-					type = join.type;
-					path = join.path;
-				} else {
-					type = 'oneway';
-					path = join;
-				}
-
-				rtn = this[type + 'Join'](tableName, this.$(path));
-
-				this.joins[tableName] = rtn;
-			} else if (!join) {
-				throw new Error('Missing join to table: ' + tableName);
-			}
-
-			return Promise.resolve(rtn);
-		}
-	}, {
-		key: 'inflate',
-		value: function inflate() {
-			var _this2 = this;
-
-			var joins = this.getTable().joins,
-			    keys = Object.keys(joins),
-			    req = [];
-
-			Object.keys(joins).forEach(function (join) {
-				req.push(_this2.join(join));
-			});
-
-			return Promise.all(req).then(function (res) {
-				var rtn = {};
-
-				keys.forEach(function (key, i) {
-					rtn[key] = res[i];
-				});
-
-				return rtn;
-			});
-		}
-	}]);
-
-	return JoinableProxy;
-}(DataProxy);
-
-module.exports = JoinableProxy;
+module.exports = {
+	Proxy: __webpack_require__(14).default
+};
 
 /***/ }),
-/* 38 */
+/* 41 */
 /***/ (function(module, exports, __webpack_require__) {
 
 "use strict";

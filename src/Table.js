@@ -1,16 +1,17 @@
 const bmoor = require('bmoor'),
-	schema = require('./Schema.js'),
+	schema = require('./table/Schema.js').default,
 	Test = require('bmoor-data').object.Test,
+	Linker = require('./table/Linker.js').default,
 	DataProxy = require('bmoor-data').object.Proxy,
-	// DataCollection = require('bmoor-data').Collection,
+	CacheProxy = require('./object/Proxy.js').default,
 	ProxiedCollection = require('bmoor-data').collection.Proxied;
 
 var defaultSettings = {
 		proxyFactory: function( datum ){
-			return new DataProxy( datum );
+			return new CacheProxy( datum );
 		},
-		collectionFactory: function(){
-			return new ProxiedCollection();
+		collectionFactory: function(src){
+			return new ProxiedCollection(src);
 		}
 	};
 
@@ -32,8 +33,6 @@ class Table {
 		this.name = name;
 		this.connector = ops.connector;
 		
-		this.joins = ops.joins || {};
-
 		if ( ops.proxy && !ops.proxyFactory ){
 			console.warn('ops.proxy will be deprecated in next major version');
 			ops.proxyFactory = function( datum ){
@@ -43,6 +42,7 @@ class Table {
 
 		this.proxyFactory = ops.proxyFactory || 
 			defaultSettings.proxyFactory;
+
 		this.collectionFactory = ops.collectionFactory || 
 			defaultSettings.collectionFactory;
 
@@ -52,7 +52,8 @@ class Table {
 			);
 		}
 
-		// If performance matters, use bmoor-data's Proxy
+		this.linker = new Linker(this, ops.links);
+
 		this.before = ops.before || function(){
 			return Promise.resolve(true);
 		};
@@ -116,7 +117,7 @@ class Table {
 	}
 
 	reset(){
-		this.collection = this.collectionFactory( this );
+		this.collection = this.collectionFactory();
 		this.index = this.collection.index( this.$id );
 		this._selections = {};
 
@@ -146,15 +147,20 @@ class Table {
 				t.merge( delta || obj );
 			}else{
 				this.normalize( obj );
-				t = this.proxyFactory( obj, this );
+				t = this.proxyFactory( obj );
 
 				this.collection.add( t );
 			}
 
-			return {
-				id: id,
-				ref: t
-			};
+			if ( this.gotten ){
+				this.gotten[ id ] = true;
+			}
+
+			if (this.linker){
+				return this.linker.add(t);
+			}else{
+				return Promise.resolve(t);
+			}
 		}else{
 			throw new Error(
 				'missing id for object: '+JSON.stringify( obj )
@@ -162,24 +168,8 @@ class Table {
 		}
 	}
 
-	// Used to check if that datum has been specifically fetched
-	_set( obj ){
-		var t = this.set(obj);
-
-		// TODO : I might want to time out the gotten cache
-		if ( this.gotten ){
-			this.gotten[ t.id ] = true;
-		}
-
-		return t.ref;
-	}
-
 	consume( arr ){
-		var i, c;
-
-		for( i = 0, c = arr.length; i < c; i++ ){
-			this.set( arr[i] );
-		}
+		return Promise.all(arr.map(d=>this.set(d)));
 	}
 
 	del( obj ){
@@ -227,13 +217,13 @@ class Table {
 		}else{
 			fetch = () => {
 				return this.connector.read( this.$encode(obj), null, options )
-					.then( ( res ) => {
-						if ( options.hook ){
-							options.hook( res );
-						}
+				.then( ( res ) => {
+					if ( options.hook ){
+						options.hook( res );
+					}
 
-						return this._set( res ); 
-					});
+					return this.set( res ); 
+				});
 			};
 		}
 
@@ -263,17 +253,17 @@ class Table {
 		return this.get( obj, options );
 	}
 
-	_setMany( prom, ids, hook ){
+	setMany( prom, ids, hook ){
 		var rtn = prom.then( res => {
 			if ( hook ){
 				hook( res );
 			}
 
-			return res.map( r => this._set(r) );
+			return Promise.all(res.map(r => this.set(r)));
 		});
 		
 		return rtn.then( res => {
-			var collection = this.collectionFactory( this );
+			var collection = this.collectionFactory();
 
 			if ( ids ){
 				ids.forEach( ( id, i ) => {
@@ -297,7 +287,7 @@ class Table {
 		return this.before( 'fetch', qry ).then( () => {
 			var rtn = this.connector.query( qry, null, options );
 
-			return this._setMany( rtn, null, options.hook );
+			return this.setMany( rtn, null, options.hook );
 		});
 	}
 
@@ -351,7 +341,7 @@ class Table {
 				rtn = Promise.resolve( [] ); // nothing to do
 			}
 
-			return this._setMany( rtn, all, options.hook );
+			return this.setMany( rtn, all, options.hook );
 		});
 	}
 
@@ -413,13 +403,14 @@ class Table {
 						}
 					}
 
-					let proxy = this.set( datum ).ref;
+					return this.set( datum )
+					.then( proxy => {
+						if ( options.useProto ){
+							proxy.merge( obj );
+						}
 
-					if ( options.useProto ){
-						proxy.merge( obj );
-					}
-
-					return proxy;
+						return proxy;
+					});
 				});
 			}
 		});

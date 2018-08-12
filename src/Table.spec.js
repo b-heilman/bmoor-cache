@@ -3,7 +3,7 @@ describe('bmoor-cache::Table', function(){
 	var Feed = require('bmoor-comm').connect.Feed,
 		Table = require('./Table.js'),
 		httpMock = new (require('bmoor-comm').testing.Requestor)(),
-		CacheProxy = require('./Proxy.js'),
+		CacheProxy = require('./object/Proxy.js').default,
 		CacheCollection = require('./Collection.js');
 
 	describe('manaul mode', function(){
@@ -463,269 +463,330 @@ describe('bmoor-cache::Table', function(){
 		});
 	});
 
-	describe('CacheProxy :: table joining - child', function(){
+	describe('::linker', function(){
 		var table1,
 			table2;
 
-		beforeEach(function(){
-			table1 = new Table('test1',{
-				id: 'id',
-				proxyFactory: function( datum, parent ){
-					return new CacheProxy( datum, parent );
-				},
-				joins: {
-					'test2': {
-						type: 'child',
-						path: 'links',
-						massage: function( obj, help ){
-							obj.id = help.makeId();
-						},
+		describe('child-one', function(){
+			beforeEach(function(){
+				table1 = new Table('test1',{
+					id: 'id'
+				});
+				table2 = new Table('test2',{
+					id: 'foo',
+					links: [{
+						type: 'child-one', 
+						table: 'test1',
+						key: 'link',
+						target: 'backref',
 						auto: true
-					}
-				}
-			});
-			table2 = new Table('test2',{
-				id: 'id',
-				proxyFactory: function( datum, parent ){
-					return new CacheProxy( datum, parent );
-				}
-			});
-			
-			table1.set({
-				id: 'ok',
-				hello: 1,
-				links: [{
-					foo: 'bar'
-				}]
-			});
-
-			table1.set({
-				id: 'ok2',
-				hello: 1,
-				links: [{
-					foo: 'bar2'
-				},{
-					foo: 'bar3'
-				}]
-			});
-		});
-
-		it('should automatically populate child table', function(){
-			expect( table2.collection.data.length ).toBe( 3 );
-		});
-
-		it('should add a sub collection tot he proxy', function( done ){
-			table1.find('ok').join('test2')
-			.then( p => {
-				expect( p.data.length ).toBe( 1 );
-
-				return table1.find('ok2').join('test2')
-				.then( p => {
-					expect( p.data.length ).toBe( 2 );
+					}]
 				});
-			})
-			.then( done, done );
-		});
-
-		it('should generate an connector for inserting data', function( done ){
-			table1.find('ok').connectors.test2
-				.insert({foo: 'bar3'});
-
-			table1.find('ok2').connectors.test2
-				.insert({foo: 'bar4'});
-
-			table1.find('ok').join('test2')
-			.then( p => {
-				expect( p.data.length ).toBe( 2 );
-
-				return table1.find('ok2').join('test2')
-				.then( p => {
-					expect( p.data.length ).toBe( 3 );
-				});
-			})
-			.then( done, done );
-		});
-
-		it('should generate an connector for deleting data', function( done ){
-			table1.find('ok2').join('test2')
-			.then( p => {
-				table1.find('ok2').connectors.test2
-					.delete(p.data[0]);
-
-				expect( p.data.length ).toBe( 1 );
-				expect( table2.collection.data.length ).toBe( 2 );
-			})
-			.then( done, (ex) => {
-				console.log( ex.message );
-				console.log( ex );
-
-				done();
-			});
-		});
-	});
-
-	describe('CacheProxy :: table joining - oneway / twoway', function(){
-		var table,
-			table2,
-			table3,
-			table4;
-
-		beforeEach(function(){
-			table = new Table('test1',{
-				id: 'id',
-				proxyFactory: function( datum, parent ){
-					return new CacheProxy( datum, parent );
-				},
-				connector: new Feed({
-					all: '/test/all',
-					read: '/test/{{id}}',
-					readMany: '/test?id[]={{id}}',
-					create: '/test/create',
-					update: '/test/update/{{id}}'
-				}),
-				joins: {
-					'test2': 'value2', // oneway
-					'test3': 'value3',
-					'test4': {
-						type: 'twoway',
-						path: 'id'
-					}
-				}
-			});
-
-			table2 = new Table('test2',{
-				id: 'id',
-				proxyFactory: function( datum, parent ){
-					return new CacheProxy( datum, parent );
-				},
-				connector: new Feed({
-					all: '/test2/all',
-					read: '/test2/{{id}}',
-					readMany: '/test2?id[]={{id}}',
-					create: '/test2/create',
-					update: '/test2/update/{{id}}'
-				})
-			});
-
-			table3 = new Table('test3',{
-				id: 'id',
-				proxyFactory: function( datum, parent ){
-					return new CacheProxy( datum, parent );
-				},
-				connector: new Feed({
-					all: '/test3/all',
-					read: '/test3/{{id}}',
-					readMany: '/test3?id[]={{id}}',
-					create: '/test3/create',
-					update: '/test3/update/{{id}}'
-				})
-			});
-
-			table4 = new Table('test4',{
-				id: 'id',
-				proxyFactory: function( datum, parent ){
-					return new CacheProxy( datum, parent );
-				},
-				connector: new Feed({
-					search: {
-						'foreignId': '/test4/{{foreignId}}'
-					}
-				}),
-				joins: {
-					'test1': 'foreignId' // becomes one way
-				}
-			});
-
-			httpMock.enable();
-		});
-
-		afterEach(function(){
-			httpMock.verifyWasFulfilled();
-		});
-
-		beforeEach(function(){
-			httpMock.expect('/test/1234').respond({
-				id: 1234,
-				foo: 'bar',
-				value2: 1,
-				value3: [ 2, 3 ]
-			});
-
-			httpMock.expect('/test2/1').respond({
-				id: 1,
-				type: 'test2'
-			});
-
-			httpMock.expect('/test3?id[]=2&id[]=3').respond([{
-				id: 2,
-				type: 'test3'
-			},{
-				id: 3,
-				type: 'test3'
-			}]);
-
-			httpMock.expect('/test4/1234').respond([{
-				id: 20,
-				foreignId: 1234,
-				type: 'test4'
-			},{
-				id: 30,
-				foreignId: 1234,
-				type: 'test4'
-			},{
-				id: 40,
-				foreignId: 1234,
-				type: 'test4'
-			}]);
-		});
-
-		it('should cache a read request', function( done ){
-			table.get(1234).then(function( d ){
-				expect( d.getDatum().foo ).toBe( 'bar' );
 				
-				return Promise.all([
-					table.get({id:1234}).then( function( d ){
-						expect( d.getDatum().foo ).toBe( 'bar' );
-					}),
-					d.join('test2').then(function( d ){
-						expect( d.getDatum().type ).toBe( 'test2' );
-					}),
-					d.join('test3').then(function( d ){
-						expect( d.data.length ).toBe( 2 );
-						expect( d.data[0].getDatum().type ).toBe( 'test3' );
-					}),
-					d.join('test4').then(function( d ){
-						expect( d.data.length ).toBe( 3 );
-						expect( d.data[0].getDatum().type ).toBe( 'test4' );
+				table1.set({
+					id: 'ok',
+					hello: 1,
+					link: {
+						foo: 'bar'
+					}
+				});
+
+				table1.set({
+					id: 'ok2',
+					hello: 1,
+					link: {
+						foo: 'bar2'
+					}
+				});
+			});
+
+			it('should automatically populate child table', function(done){
+				// data can be in second collection, but isn't linked yet
+				expect( table1.collection.data.length )
+				.toBe( 2 );
+
+				expect( table2.collection.data.length )
+				.toBe( 2 );
+
+				expect( table1.collection.data[0].$links )
+				.toBeUndefined();
+
+				expect( table2.collection.data[0].$links )
+				.toBeUndefined();
+
+				table1.collection.data[0].link('test2')
+				.then(() => {
+					expect( table1.collection.data[0].$links.test2 )
+					.toBeDefined();
+
+					expect( table2.collection.data[0].$links.backref )
+					.toBeDefined();
+
+					done();
+				});
+			});
+		});
+
+		describe('child-many', function(){
+			beforeEach(function(){
+				table1 = new Table('test1',{
+					id: 'id'
+				});
+				table2 = new Table('test2',{
+					id: 'foo',
+					links: [{
+						type: 'child-many', 
+						table: 'test1',
+						key: 'links',
+						target: 'backref',
+						auto: true
+					}]
+				});
+				
+				table1.set({
+					id: 'ok',
+					hello: 1,
+					links: [{
+						foo: 'bar'
+					}]
+				});
+
+				table1.set({
+					id: 'ok2',
+					hello: 1,
+					links: [{
+						foo: 'bar2'
+					},{
+						foo: 'bar3'
+					}]
+				});
+			});
+
+			it('should automatically populate child table', function(done){
+				// data can be in second collection, but isn't linked yet
+				expect( table1.collection.data.length )
+				.toBe( 2 );
+
+				expect( table2.collection.data.length )
+				.toBe( 3 );
+
+				expect( table1.collection.data[0].$links )
+				.toBeUndefined();
+
+				expect( table2.collection.data[0].$links )
+				.toBeUndefined();
+
+				table1.collection.data[0].link('test2')
+				.then(() => {
+					expect( table1.collection.data[0].$links.test2 )
+					.toBeDefined();
+
+					expect( table2.collection.data[0].$links.backref )
+					.toBeDefined();
+
+					done();
+				});
+			});
+		});
+	
+		describe('link-one', function(){
+			var table,
+				table2;
+
+			beforeEach(function(){
+
+				table2 = new Table('test2',{
+					id: 'id',
+					proxyFactory: function( datum, parent ){
+						return new CacheProxy( datum, parent );
+					},
+					connector: new Feed({
+						all: '/test2/all',
+						read: '/test2/{{id}}',
+						readMany: '/test2?id[]={{id}}',
+						create: '/test2/create',
+						update: '/test2/update/{{id}}'
 					})
-				]).then(function(){
-					done();
 				});
-			}).catch( (ex) => {
-				console.log( ex.fileName, ex.lineNumber );
-				console.log( ex.message );
-				console.log( ex.stack );
+
+				table = new Table('test1',{
+					id: 'id',
+					connector: new Feed({
+						all: '/test/all',
+						read: '/test/{{id}}',
+						readMany: '/test?id[]={{id}}',
+						create: '/test/create',
+						update: '/test/update/{{id}}'
+					}),
+					links: [{
+						type: 'link-one',
+						table: 'test2',
+						key: 'link',
+						target: 'test2'
+					}]
+				});
+
+				httpMock.enable();
+			});
+
+			afterEach(function(){
+				httpMock.verifyWasFulfilled();
+			});
+
+			beforeEach(function(){
+				httpMock.expect('/test/1234').respond({
+					id: 1234,
+					foo: 'bar',
+					link: 1
+				});
+
+				httpMock.expect('/test2/1').respond({
+					id: 1,
+					type: 'test2'
+				});
+			});
+
+			it('should link correctly', function( done ){
+				table.get(1234).then(function( d ){
+					expect( d.getDatum().foo ).toBe( 'bar' );
+
+					expect( d.$links ).toBeUndefined();
+					
+					return d.link('test2')
+					.then(function(links){
+						expect(links).toBe(d.$links);
+
+						expect(links.test2.$('type'))
+						.toBe('test2');
+						
+						done();
+					});
+				}).catch( (ex) => {
+					console.log( ex.message );
+					console.log( ex );
+				});
+			});
+
+			it('should work with inflate', function( done ){
+				table.get(1234).then(function( d ){
+					expect(d.getDatum().foo).toBe( 'bar' );
+
+					expect(d.$links).toBeUndefined();
+					
+					return d.inflate()
+					.then(function(links){
+						expect(links).toBe(d.$links);
+
+						expect(links.test2.$('type'))
+						.toBe('test2');
+						
+						done();
+					});
+				}).catch( (ex) => {
+					console.log( ex.message );
+					console.log( ex );
+				});
 			});
 		});
 
-		it('should work with inflate', function( done ){
-			table.get(1234).then(function( d ){
-				expect( d.getDatum().foo ).toBe( 'bar' );
-				
-				return d.inflate()
-				.then(function( res ){
-					expect( res.test2.getDatum().type ).toBe( 'test2' );
-					expect( res.test3.data.length ).toBe( 2 );
-					expect( res.test3.data[0].getDatum().type ).toBe( 'test3' );
-					expect( res.test4.data.length ).toBe( 3 );
-					expect( res.test4.data[0].getDatum().type ).toBe( 'test4' );
-				}).then(function(){
-					done();
+		describe('link-many', function(){
+			var table,
+				table2;
+
+			beforeEach(function(){
+
+				table2 = new Table('test2',{
+					id: 'id',
+					proxyFactory: function( datum, parent ){
+						return new CacheProxy( datum, parent );
+					},
+					connector: new Feed({
+						all: '/test2/all',
+						read: '/test2/{{id}}',
+						readMany: '/test2?id[]={{id}}',
+						create: '/test2/create',
+						update: '/test2/update/{{id}}'
+					})
 				});
-			}).catch( (ex) => {
-				console.log( ex.fileName, ex.lineNumber );
-				console.log( ex.message );
-				console.log( ex );
+
+				table = new Table('test1',{
+					id: 'id',
+					connector: new Feed({
+						all: '/test/all',
+						read: '/test/{{id}}',
+						readMany: '/test?id[]={{id}}',
+						create: '/test/create',
+						update: '/test/update/{{id}}'
+					}),
+					links: [{
+						type: 'link-many',
+						table: 'test2',
+						key: 'link',
+						target: 'test2'
+					}]
+				});
+
+				httpMock.enable();
+			});
+
+			afterEach(function(){
+				httpMock.verifyWasFulfilled();
+			});
+
+			beforeEach(function(){
+				httpMock.expect('/test/1234').respond({
+					id: 1234,
+					foo: 'bar',
+					link: [2,3]
+				});
+
+				httpMock.expect('/test2?id[]=2&id[]=3').respond([{
+					id: 2,
+					type: 'test2-2'
+				},{
+					id: 3,
+					type: 'test2-3'
+				}]);
+			});
+
+			it('should link correctly', function( done ){
+				table.get(1234).then(function( d ){
+					expect(d.getDatum().foo).toBe( 'bar' );
+					expect(d.$links).toBeUndefined();
+					
+					return d.link('test2')
+					.then(function(links){
+						expect(links).toBe(d.$links);
+
+						expect(links.test2.data[0].$('type'))
+						.toBe('test2-2');
+						
+						done();
+					});
+				}).catch( (ex) => {
+					console.log( ex.message );
+					console.log( ex );
+				});
+			});
+
+			it('should work with inflate', function( done ){
+				table.get(1234).then(function( d ){
+					expect( d.getDatum().foo ).toBe( 'bar' );
+					expect( d.test2 ).toBeUndefined();
+					
+					return d.inflate()
+					.then(function(links){
+						expect(links).toBe(d.$links);
+
+						expect(links.test2.data[0].$('type'))
+						.toBe('test2-2');
+						
+						done();
+					});
+				}).catch( (ex) => {
+					console.log( ex.message );
+					console.log( ex );
+				});
 			});
 		});
 	});
