@@ -2645,7 +2645,7 @@ var Table = function () {
 				}
 
 				if (_this9.synthetic) {
-					return _this9.synthetic.update(delta).then(function () {
+					return _this9.synthetic.update(from, delta, options, proxy).then(function () {
 						return proxy;
 					});
 				} else {
@@ -2687,13 +2687,13 @@ var Table = function () {
 				var proxy = _this10.find(obj);
 
 				if (proxy) {
+					var datum = proxy.getDatum();
+
 					if (_this10.synthetic) {
-						_this10.synthetic.delete().then(function () {
+						_this10.synthetic.delete(obj, datum, options, proxy).then(function () {
 							return proxy;
 						});
 					} else {
-						var datum = proxy.getDatum();
-
 						return _this10.connector.delete(datum, datum, options).then(function (res) {
 							if (options.hook) {
 								options.hook(res);

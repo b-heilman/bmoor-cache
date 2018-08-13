@@ -488,11 +488,11 @@ class Table {
 			}
 
 			if (this.synthetic){
-				return this.synthetic.update(delta)
+				return this.synthetic.update(from, delta, options, proxy)
 				.then(() => proxy);
 			}else{
 				if ( proxy && delta ){
-					return this.connector.update( from, delta, options )
+					return this.connector.update(from, delta, options)
 					.then( ( res ) => {
 						if ( options.hook ){
 							options.hook( res );
@@ -529,12 +529,12 @@ class Table {
 			var proxy = this.find( obj );
 
 			if ( proxy ){
+				let datum = proxy.getDatum();
+
 				if (this.synthetic){
-					this.synthetic.delete()
+					this.synthetic.delete(obj, datum, options, proxy)
 					.then(() => proxy);
 				}else{
-					let datum = proxy.getDatum();
-
 					return this.connector.delete( datum, datum, options )
 					.then( ( res ) => {
 						if ( options.hook ){
