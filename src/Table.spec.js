@@ -124,7 +124,10 @@ describe('bmoor-cache::Table', function(){
 				expect( d[1].getDatum().id ).toBe( 20 );
 
 				done();
-			}).catch( ex => {console.log( ex.message); console.log( ex );} );
+			}).catch( ex => {
+				console.log( ex.message);
+				console.log( ex );
+			});
 		});
 		
 		describe('all requests', function(){
@@ -247,7 +250,6 @@ describe('bmoor-cache::Table', function(){
 						});
 					});
 				}).catch( (ex) => {
-					console.log( ex.fileName, ex.lineNumber );
 					console.log( ex.message );
 					console.log( ex );
 				});
@@ -407,7 +409,6 @@ describe('bmoor-cache::Table', function(){
 						done();
 					});
 				}).catch( (ex) => { 
-					console.log( ex.fileName, ex.lineNumber );
 					console.log( ex.message );
 					console.log( ex );
 				});
@@ -456,7 +457,6 @@ describe('bmoor-cache::Table', function(){
 					done();
 				});
 			}).catch( (ex) => {
-				console.log( ex.fileName, ex.lineNumber );
 				console.log( ex.message );
 				console.log( ex );
 			});
@@ -530,7 +530,10 @@ describe('bmoor-cache::Table', function(){
 		describe('child-many', function(){
 			beforeEach(function(){
 				table1 = new Table('test1',{
-					id: 'id'
+					id: 'id',
+					connector: new Feed({
+						update: '/test/update/{{id}}'
+					})
 				});
 				table2 = new Table('test2',{
 					id: 'foo',
@@ -540,7 +543,19 @@ describe('bmoor-cache::Table', function(){
 						key: 'links',
 						target: 'backref',
 						auto: true
-					}]
+					}],
+					synthetic: {
+						insert: function( datum ){
+							var base = table1.find(datum.backRef),
+								links = base.$('links');
+
+							links.push(datum);
+
+							return table1.update(base,{
+								links: links
+							});
+						}
+					}
 				});
 				
 				table1.set({
@@ -585,6 +600,48 @@ describe('bmoor-cache::Table', function(){
 					.toBeDefined();
 
 					done();
+				});
+			});
+
+			it('should bind directly to the array', function(){
+				expect( table1.collection.data.length )
+				.toBe( 2 );
+
+				expect( table2.collection.data.length )
+				.toBe( 3 );
+
+				table1.collection.data[0].getDatum().links.push({
+					foo: 'bar1.1'
+				});
+
+				expect( table2.collection.data.length )
+				.toBe( 4 );
+
+				table1.collection.data[0].getDatum().links.shift();
+
+				expect( table2.collection.data.length )
+				.toBe( 3 );
+			});
+
+			describe('synthetic', function(){
+				beforeEach(function(){
+					httpMock.enable();
+				});
+
+				afterEach(function(){
+					httpMock.verifyWasFulfilled();
+				});
+
+				it('should call update on parent', function(done){
+					httpMock.expect('/test/update/ok').respond( null );
+
+					table2.insert({backRef:'ok', foo: 'bar4'})
+					.then( () => {
+						expect( table2.collection.data.length )
+						.toBe( 4 );
+
+						done();
+					});
 				});
 			});
 		});

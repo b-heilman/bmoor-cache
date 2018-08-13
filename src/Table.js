@@ -31,7 +31,13 @@ class Table {
 		schema.register( name, this );
 
 		this.name = name;
-		this.connector = ops.connector;
+
+		if (ops.synthetic){
+			// TODO : I might move synthetic to its own table like class
+			this.synthetic = ops.synthetic;
+		}else{
+			this.connector = ops.connector;
+		}
 		
 		if ( ops.proxy && !ops.proxyFactory ){
 			console.warn('ops.proxy will be deprecated in next major version');
@@ -193,7 +199,12 @@ class Table {
 		let batch = 'batch' in options ? options.batch :
 				( 'batch' in defaultSettings ? defaultSettings.batch : null );
 
-		if ( batch || batch === 0 ){
+		if (this.synthetic){
+			fetch = datum => {
+				return this.synthetic.get(datum)
+				.then(() => this.find(obj));
+			};
+		}else if ( batch || batch === 0 ){
 			if ( this.batched ){
 				this.batched.list.push( obj ); 
 			}else{
@@ -212,29 +223,31 @@ class Table {
 				};
 			}
 
-			let res = this.batched.promise.then( () => this.find(obj) );
-			fetch = () => res;
+			fetch = datum => {
+				return this.batched.promise
+				.then( () => this.find(datum) );
+			};
 		}else{
-			fetch = () => {
-				return this.connector.read( this.$encode(obj), null, options )
+			fetch = datum => {
+				return this.connector.read( this.$encode(datum), null, options )
 				.then( ( res ) => {
 					if ( options.hook ){
 						options.hook( res );
 					}
 
-					return this.set( res ); 
+					return this.set( res );
 				});
 			};
 		}
 
 		return this.before( 'get' ).then( () => {
-			var t = this.find( obj );
+			var t = this.find(obj);
 			
 			if ( !t || (options&&options.cached===false) ){
-				return fetch( obj );
+				return fetch(obj);
 			}else{
 				if ( this.gotten && !this.gotten[this.$id(obj)] ){
-					return fetch( obj );
+					return fetch(obj);
 				}else{
 					return t;
 				}
@@ -285,9 +298,16 @@ class Table {
 		}
 
 		return this.before( 'fetch', qry ).then( () => {
-			var rtn = this.connector.query( qry, null, options );
+			var rtn;
 
-			return this.setMany( rtn, null, options.hook );
+			if (this.synthetic){
+				// NOTE : I don't love this...
+				rtn = this.synthetic.fetch(qry, options);
+			}else{
+				rtn = this.connector.query(qry, null, options);
+			}
+
+			return this.setMany(rtn, null, options.hook);
 		});
 	}
 
@@ -328,7 +348,9 @@ class Table {
 			if ( req.length ){
 				// this works because I can assume id was defined for 
 				// the feed
-				if ( this.connector.readMany ){
+				if (this.synthetic && this.synthetic.getMany){
+					rtn = this.synthetic.getMany(req, options);
+				}else if ( this.connector.readMany ){
 					rtn = this.connector.readMany( req, null, options );
 				}else{
 					// The feed doesn't have readMany, so many reads will work
@@ -355,8 +377,19 @@ class Table {
 
 		return this.before( 'all' ).then( () => {
 			if ( !this.$all || options.cached===false ){
-				this.$all = this.connector.all( obj, null, options )
-				.then( (res) => {
+				let res;
+
+				if (this.synthetic){
+					if (this.synthetic.all){
+						res = this.synthetic.all(obj, options);
+					}else{
+						res = Promise.resolve([]);
+					}
+				}else{
+					res = this.connector.all(obj, null, options);
+				}
+				
+				this.$all = res.then( (res) => {
 					if ( options.hook ){
 						options.hook( res );
 					}
@@ -380,38 +413,51 @@ class Table {
 		return this.before( 'insert', obj ).then( () => {
 			var t = this.find( obj );
 
-			if ( t ){
-				throw new Error(
-					'This already exists ' + JSON.stringify( obj )
-				);
+			if (this.synthetic){
+				// if it exists, don't do anything
+				if ( t ){
+					return Promise.resolve(t);
+				}else{
+					return this.synthetic.insert(obj, options)
+					.then(() => this.find(obj));
+				}
 			}else{
-				return this.connector.create( obj, obj, options )
-				.then( ( res ) => {
-					if ( options.hook ){
-						options.hook( res );
-					}
-
-					let datum;
-
-					if ( !options.ignoreResponse && bmoor.isObject(res) ){
-						datum = res;
-					} else {
-						datum = obj;
-
-						if ( options.makeId ){
-							options.makeId( obj, res );
-						}
-					}
-
-					return this.set( datum )
-					.then( proxy => {
-						if ( options.useProto ){
-							proxy.merge( obj );
+				if ( t ){
+					throw new Error(
+						'This already exists ' + JSON.stringify( obj )
+					);
+				}else{
+					return this.connector.create( obj, obj, options )
+					.then( res => {
+						if ( options.hook ){
+							options.hook( res );
 						}
 
-						return proxy;
+						let datum;
+
+						if ( !options.ignoreResponse && bmoor.isObject(res) ){
+							datum = res;
+						} else {
+							datum = obj;
+
+							if ( options.makeId ){
+								options.makeId( obj, res );
+							}
+						}
+
+						return datum;
+					})
+					.then( datum => {
+						return this.set( datum )
+						.then( proxy => {
+							if ( options.useProto ){
+								proxy.merge( obj );
+							}
+
+							return proxy;
+						});
 					});
-				});
+				}
 			}
 		});
 	}
@@ -435,32 +481,39 @@ class Table {
 				proxy = this.find( from );
 			}
 
-			if ( !delta ){
+			if (delta === true){
+				delta = proxy.getDatum();
+			}else if (!delta){
 				delta = proxy.getChanges();
 			}
 
-			if ( proxy && delta ){
-				return this.connector.update( from, delta, options )
-				.then( ( res ) => {
-					if ( options.hook ){
-						options.hook( res );
-					}
-
-					if ( !options.ignoreResponse && bmoor.isObject(res) ){
-						proxy.merge( res );
-					}else if ( !options.ignoreDelta ){
-						proxy.merge( delta );
-					}
-
-					return proxy;
-				});
-			}else if ( proxy ){
-				return Promise.resolve( proxy );
+			if (this.synthetic){
+				return this.synthetic.update(delta)
+				.then(() => proxy);
 			}else{
-				throw new Error(
-					'Can not update that which does not exist' +
-					JSON.stringify( from )
-				);	
+				if ( proxy && delta ){
+					return this.connector.update( from, delta, options )
+					.then( ( res ) => {
+						if ( options.hook ){
+							options.hook( res );
+						}
+
+						if ( !options.ignoreResponse && bmoor.isObject(res) ){
+							proxy.merge( res );
+						}else if ( !options.ignoreDelta ){
+							proxy.merge( delta );
+						}
+
+						return proxy;
+					});
+				}else if ( proxy ){
+					return Promise.resolve( proxy );
+				}else{
+					throw new Error(
+						'Can not update that which does not exist' +
+						JSON.stringify( from )
+					);	
+				}
 			}
 		});
 	}
@@ -476,18 +529,23 @@ class Table {
 			var proxy = this.find( obj );
 
 			if ( proxy ){
-				let datum = proxy.getDatum();
+				if (this.synthetic){
+					this.synthetic.delete()
+					.then(() => proxy);
+				}else{
+					let datum = proxy.getDatum();
 
-				return this.connector.delete( datum, datum, options )
-				.then( ( res ) => {
-					if ( options.hook ){
-						options.hook( res );
-					}
+					return this.connector.delete( datum, datum, options )
+					.then( ( res ) => {
+						if ( options.hook ){
+							options.hook( res );
+						}
 
-					this.del( obj );
+						this.del( obj );
 
-					return proxy;
-				});
+						return proxy;
+					});
+				}
 			}else{
 				throw new Error(
 					'Can not delete that which does not exist' +

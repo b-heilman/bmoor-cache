@@ -1,7 +1,53 @@
 
-const bmoor = require('bmoor'),
-	DataProxy = require('bmoor-data').object.Proxy,
-	Schema = require('./Schema.js').default;
+const bmoor = require('bmoor');
+const DataProxy = require('bmoor-data').object.Proxy;
+const Schema = require('./Schema.js').default;
+
+// NOTE: borrowed from bmoor.array.watch, replace when version ready
+function watch( arr, insert, remove, preload ){
+	if (insert){
+		let oldPush = arr.push.bind(arr);
+		let oldUnshift = arr.unshift.bind(arr);
+
+		arr.push = function(...args){
+			args.forEach(insert);
+
+			oldPush(...args);
+		};
+
+		arr.unshift = function(...args){
+			args.forEach(insert);
+
+			oldUnshift(...args);
+		};
+
+		if(preload){
+			arr.forEach(insert);
+		}
+	}
+
+	if (remove){
+		let oldShift = arr.shift.bind(arr);
+		let oldPop = arr.pop.bind(arr);
+		let oldSplice = arr.splice.bind(arr);
+
+		arr.shift = function(...args){
+			remove(oldShift(...args));
+		};
+
+		arr.pop = function(...args){
+			remove(oldPop(...args));
+		};
+
+		arr.splice = function(...args){
+			var res = oldSplice(...args);
+
+			res.forEach(remove);
+
+			return res;
+		};
+	}
+}
 
 /*
 Object.keys(joins).forEach( tableName => {
@@ -76,7 +122,7 @@ function stack( old, fn ){
 function linkFn(key, sibling, target, type, link){
 	return {
 		add: function(datum, onload, name){
-			var proxy = null;
+			var ctrl = datum;
 
 			if (name && sibling.name !== name){
 				return;
@@ -87,18 +133,17 @@ function linkFn(key, sibling, target, type, link){
 			}
 
 			if (datum instanceof DataProxy){
-				proxy = datum;
 				datum = datum.getDatum();
 			}
 
 			// no need to load this if it's already been called
-			if (!bmoor.get(proxy||datum, '$links.'+target)){
+			if (!bmoor.get(ctrl, '$links.'+target)){
 				let src = bmoor.get(datum, key),
 					rtn = sibling[type === 'many'?'getMany':'get'](src);
 
 				rtn.then(res => {
 					bmoor.set(
-						proxy||datum,
+						ctrl,
 						'$links.'+target, 
 						res
 					);
@@ -122,7 +167,7 @@ function linkFn(key, sibling, target, type, link){
 function childFn(key, child, target, type, link){
 	return {
 		add: function(datum, onload, name){
-			var proxy = null;
+			var ctrl = datum;
 
 			if (name && target.name !== name){
 				return;
@@ -133,44 +178,60 @@ function childFn(key, child, target, type, link){
 			}
 
 			if (datum instanceof DataProxy){
-				proxy = datum;
 				datum = datum.getDatum();
 			}
 
 			// link back to the original datum
-			let fn = value => {
-					if (link.massage){
-						value = link.massage(value);
-					}
-					
-					if (link.filter && !link.filter(value)){
-						return;
-					}
+			let values = bmoor.get(datum, key);
 
-					return child.set(value)
-					.then( res => {
-						// back reference
-						bmoor.set(
-							res,
-							'$links.'+target, // mount on $links property
-							proxy||datum
-						);
+			// push data to child, and link back to origin
+			let set = value => {
+				if (link.massage){
+					value = link.massage(value);
+				}
+				
+				if (link.filter && !link.filter(value)){
+					return;
+				}
 
-						return res;
-					});
-				},
-				values = bmoor.get(datum, key);
+				// TODO: make this insert?
+				return child.set(value)
+				.then( res => {
+					// back reference
+					bmoor.set(
+						res,
+						'$links.'+target, // mount on $links property
+						ctrl
+					);
 
+					return res;
+				});
+			};
+
+			let remove = value => {
+				if (link.massage){
+					value = link.massage(value);
+				}
+				
+				if (link.filter && !link.filter(value)){
+					return;
+				}
+
+				// TODO : make this delete?
+				return child.del(value);
+			};
 			/*
 				I'm pushing to the table's name, shouldn't conflict
 				because you can only have one child with the same name
 				I'm sure someone will find a way to prove me wrong
+			
+				QUESTION : Do I really need this?  I might remove later
 			*/		
 			if (type === 'one') {
-				return fn(values)
+				return set(values)
 				.then( res => {
 					bmoor.set(
-						proxy||datum,
+						ctrl,
 						'$links.'+child.name,
 						res
 					);
@@ -178,12 +239,35 @@ function childFn(key, child, target, type, link){
 					return res;
 				});
 			}else{
-				return Promise.all(values.map(fn))
+				var collection = child.collectionFactory();
+
+				watch(
+					values,
+					function(datum){
+						set(datum)
+						.then(res => {
+							if ( res ){
+								collection.add(res);
+							}
+						});
+					},
+					function(datum){
+						var res = remove(datum);
+						
+						if ( res ){
+							collection.remove(res);
+						}
+					},
+					false
+				);
+
+				return Promise.all(values.map(set))
 				.then( res => {
-					var collection = child.collectionFactory(res);
+					// prune undefined
+					collection.consume(res.filter(d => d));
 				
 					bmoor.set(
-						proxy||datum,
+						ctrl,
 						'$links.'+child.name,
 						collection
 					);

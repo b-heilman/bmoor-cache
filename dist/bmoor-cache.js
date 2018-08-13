@@ -1575,9 +1575,63 @@ var _createClass = function () { function defineProperties(target, props) { for 
 
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
-var bmoor = __webpack_require__(0),
-    DataProxy = __webpack_require__(1).object.Proxy,
-    Schema = __webpack_require__(3).default;
+var bmoor = __webpack_require__(0);
+var DataProxy = __webpack_require__(1).object.Proxy;
+var Schema = __webpack_require__(3).default;
+
+// NOTE: borrowed from bmoor.array.watch, replace when version ready
+function watch(arr, insert, remove, preload) {
+	if (insert) {
+		var oldPush = arr.push.bind(arr);
+		var oldUnshift = arr.unshift.bind(arr);
+
+		arr.push = function () {
+			for (var _len = arguments.length, args = Array(_len), _key = 0; _key < _len; _key++) {
+				args[_key] = arguments[_key];
+			}
+
+			args.forEach(insert);
+
+			oldPush.apply(undefined, args);
+		};
+
+		arr.unshift = function () {
+			for (var _len2 = arguments.length, args = Array(_len2), _key2 = 0; _key2 < _len2; _key2++) {
+				args[_key2] = arguments[_key2];
+			}
+
+			args.forEach(insert);
+
+			oldUnshift.apply(undefined, args);
+		};
+
+		if (preload) {
+			arr.forEach(insert);
+		}
+	}
+
+	if (remove) {
+		var oldShift = arr.shift.bind(arr);
+		var oldPop = arr.pop.bind(arr);
+		var oldSplice = arr.splice.bind(arr);
+
+		arr.shift = function () {
+			remove(oldShift.apply(undefined, arguments));
+		};
+
+		arr.pop = function () {
+			remove(oldPop.apply(undefined, arguments));
+		};
+
+		arr.splice = function () {
+			var res = oldSplice.apply(undefined, arguments);
+
+			res.forEach(remove);
+
+			return res;
+		};
+	}
+}
 
 /*
 Object.keys(joins).forEach( tableName => {
@@ -1652,7 +1706,7 @@ function stack(old, fn) {
 function linkFn(key, sibling, target, type, link) {
 	return {
 		add: function add(datum, onload, name) {
-			var proxy = null;
+			var ctrl = datum;
 
 			if (name && sibling.name !== name) {
 				return;
@@ -1663,17 +1717,16 @@ function linkFn(key, sibling, target, type, link) {
 			}
 
 			if (datum instanceof DataProxy) {
-				proxy = datum;
 				datum = datum.getDatum();
 			}
 
 			// no need to load this if it's already been called
-			if (!bmoor.get(proxy || datum, '$links.' + target)) {
+			if (!bmoor.get(ctrl, '$links.' + target)) {
 				var src = bmoor.get(datum, key),
 				    rtn = sibling[type === 'many' ? 'getMany' : 'get'](src);
 
 				rtn.then(function (res) {
-					bmoor.set(proxy || datum, '$links.' + target, res);
+					bmoor.set(ctrl, '$links.' + target, res);
 
 					return res;
 				});
@@ -1694,7 +1747,7 @@ function linkFn(key, sibling, target, type, link) {
 function childFn(key, child, target, type, link) {
 	return {
 		add: function add(datum, onload, name) {
-			var proxy = null;
+			var ctrl = datum;
 
 			if (name && target.name !== name) {
 				return;
@@ -1705,12 +1758,14 @@ function childFn(key, child, target, type, link) {
 			}
 
 			if (datum instanceof DataProxy) {
-				proxy = datum;
 				datum = datum.getDatum();
 			}
 
 			// link back to the original datum
-			var fn = function fn(value) {
+			var values = bmoor.get(datum, key);
+
+			// push data to child, and link back to origin
+			var set = function set(value) {
 				if (link.massage) {
 					value = link.massage(value);
 				}
@@ -1719,36 +1774,65 @@ function childFn(key, child, target, type, link) {
 					return;
 				}
 
+				// TODO: make this insert?
 				return child.set(value).then(function (res) {
 					// back reference
-					console.log('---- backref -----');
-					console.log(res.getDatum());
-
 					bmoor.set(res, '$links.' + target, // mount on $links property
-					proxy || datum);
+					ctrl);
 
 					return res;
 				});
-			},
-			    values = bmoor.get(datum, key);
+			};
 
+			var remove = function remove(value) {
+				if (link.massage) {
+					value = link.massage(value);
+				}
+
+				if (link.filter && !link.filter(value)) {
+					return;
+				}
+
+				// TODO : make this delete?
+				return child.del(value);
+			};
 			/*
    	I'm pushing to the table's name, shouldn't conflict
    	because you can only have one child with the same name
    	I'm sure someone will find a way to prove me wrong
+   
+   	QUESTION : Do I really need this?  I might remove later
    */
 			if (type === 'one') {
-				return fn(values).then(function (res) {
-					bmoor.set(proxy || datum, '$links.' + child.name, res);
+				return set(values).then(function (res) {
+					bmoor.set(ctrl, '$links.' + child.name, res);
 
 					return res;
 				});
 			} else {
-				return Promise.all(values.map(fn)).then(function (res) {
-					var collection = child.collectionFactory(res);
+				var collection = child.collectionFactory();
 
-					console.log('----- many -----');
-					bmoor.set(proxy || datum, '$links.' + child.name, collection);
+				watch(values, function (datum) {
+					set(datum).then(function (res) {
+						if (res) {
+							collection.add(res);
+						}
+					});
+				}, function (datum) {
+					var res = remove(datum);
+
+					if (res) {
+						collection.remove(res);
+					}
+				}, false);
+
+				return Promise.all(values.map(set)).then(function (res) {
+					// prune undefined
+					collection.consume(res.filter(function (d) {
+						return d;
+					}));
+
+					bmoor.set(ctrl, '$links.' + child.name, collection);
 
 					return res;
 				});
@@ -2071,7 +2155,13 @@ var Table = function () {
 		schema.register(name, this);
 
 		this.name = name;
-		this.connector = ops.connector;
+
+		if (ops.synthetic) {
+			// TODO : I might move synthetic to its own table like class
+			this.synthetic = ops.synthetic;
+		} else {
+			this.connector = ops.connector;
+		}
 
 		if (ops.proxy && !ops.proxyFactory) {
 			console.warn('ops.proxy will be deprecated in next major version');
@@ -2240,7 +2330,13 @@ var Table = function () {
 			// allow for the default to be batching
 			var batch = 'batch' in options ? options.batch : 'batch' in defaultSettings ? defaultSettings.batch : null;
 
-			if (batch || batch === 0) {
+			if (this.synthetic) {
+				fetch = function fetch(datum) {
+					return _this3.synthetic.get(datum).then(function () {
+						return _this3.find(obj);
+					});
+				};
+			} else if (batch || batch === 0) {
 				if (this.batched) {
 					this.batched.list.push(obj);
 				} else {
@@ -2258,15 +2354,14 @@ var Table = function () {
 					};
 				}
 
-				var res = this.batched.promise.then(function () {
-					return _this3.find(obj);
-				});
-				fetch = function fetch() {
-					return res;
+				fetch = function fetch(datum) {
+					return _this3.batched.promise.then(function () {
+						return _this3.find(datum);
+					});
 				};
 			} else {
-				fetch = function fetch() {
-					return _this3.connector.read(_this3.$encode(obj), null, options).then(function (res) {
+				fetch = function fetch(datum) {
+					return _this3.connector.read(_this3.$encode(datum), null, options).then(function (res) {
 						if (options.hook) {
 							options.hook(res);
 						}
@@ -2345,7 +2440,14 @@ var Table = function () {
 			}
 
 			return this.before('fetch', qry).then(function () {
-				var rtn = _this5.connector.query(qry, null, options);
+				var rtn;
+
+				if (_this5.synthetic) {
+					// NOTE : I don't love this...
+					rtn = _this5.synthetic.fetch(qry, options);
+				} else {
+					rtn = _this5.connector.query(qry, null, options);
+				}
 
 				return _this5.setMany(rtn, null, options.hook);
 			});
@@ -2393,7 +2495,9 @@ var Table = function () {
 				if (req.length) {
 					// this works because I can assume id was defined for 
 					// the feed
-					if (_this6.connector.readMany) {
+					if (_this6.synthetic && _this6.synthetic.getMany) {
+						rtn = _this6.synthetic.getMany(req, options);
+					} else if (_this6.connector.readMany) {
 						rtn = _this6.connector.readMany(req, null, options);
 					} else {
 						// The feed doesn't have readMany, so many reads will work
@@ -2425,7 +2529,19 @@ var Table = function () {
 
 			return this.before('all').then(function () {
 				if (!_this7.$all || options.cached === false) {
-					_this7.$all = _this7.connector.all(obj, null, options).then(function (res) {
+					var res = void 0;
+
+					if (_this7.synthetic) {
+						if (_this7.synthetic.all) {
+							res = _this7.synthetic.all(obj, options);
+						} else {
+							res = Promise.resolve([]);
+						}
+					} else {
+						res = _this7.connector.all(obj, null, options);
+					}
+
+					_this7.$all = res.then(function (res) {
 						if (options.hook) {
 							options.hook(res);
 						}
@@ -2454,34 +2570,47 @@ var Table = function () {
 			return this.before('insert', obj).then(function () {
 				var t = _this8.find(obj);
 
-				if (t) {
-					throw new Error('This already exists ' + JSON.stringify(obj));
-				} else {
-					return _this8.connector.create(obj, obj, options).then(function (res) {
-						if (options.hook) {
-							options.hook(res);
-						}
-
-						var datum = void 0;
-
-						if (!options.ignoreResponse && bmoor.isObject(res)) {
-							datum = res;
-						} else {
-							datum = obj;
-
-							if (options.makeId) {
-								options.makeId(obj, res);
-							}
-						}
-
-						return _this8.set(datum).then(function (proxy) {
-							if (options.useProto) {
-								proxy.merge(obj);
-							}
-
-							return proxy;
+				if (_this8.synthetic) {
+					// if it exists, don't do anything
+					if (t) {
+						return Promise.resolve(t);
+					} else {
+						return _this8.synthetic.insert(obj, options).then(function () {
+							return _this8.find(obj);
 						});
-					});
+					}
+				} else {
+					if (t) {
+						throw new Error('This already exists ' + JSON.stringify(obj));
+					} else {
+						return _this8.connector.create(obj, obj, options).then(function (res) {
+							if (options.hook) {
+								options.hook(res);
+							}
+
+							var datum = void 0;
+
+							if (!options.ignoreResponse && bmoor.isObject(res)) {
+								datum = res;
+							} else {
+								datum = obj;
+
+								if (options.makeId) {
+									options.makeId(obj, res);
+								}
+							}
+
+							return datum;
+						}).then(function (datum) {
+							return _this8.set(datum).then(function (proxy) {
+								if (options.useProto) {
+									proxy.merge(obj);
+								}
+
+								return proxy;
+							});
+						});
+					}
 				}
 			});
 		}
@@ -2509,28 +2638,36 @@ var Table = function () {
 					proxy = _this9.find(from);
 				}
 
-				if (!delta) {
+				if (delta === true) {
+					delta = proxy.getDatum();
+				} else if (!delta) {
 					delta = proxy.getChanges();
 				}
 
-				if (proxy && delta) {
-					return _this9.connector.update(from, delta, options).then(function (res) {
-						if (options.hook) {
-							options.hook(res);
-						}
-
-						if (!options.ignoreResponse && bmoor.isObject(res)) {
-							proxy.merge(res);
-						} else if (!options.ignoreDelta) {
-							proxy.merge(delta);
-						}
-
+				if (_this9.synthetic) {
+					return _this9.synthetic.update(delta).then(function () {
 						return proxy;
 					});
-				} else if (proxy) {
-					return Promise.resolve(proxy);
 				} else {
-					throw new Error('Can not update that which does not exist' + JSON.stringify(from));
+					if (proxy && delta) {
+						return _this9.connector.update(from, delta, options).then(function (res) {
+							if (options.hook) {
+								options.hook(res);
+							}
+
+							if (!options.ignoreResponse && bmoor.isObject(res)) {
+								proxy.merge(res);
+							} else if (!options.ignoreDelta) {
+								proxy.merge(delta);
+							}
+
+							return proxy;
+						});
+					} else if (proxy) {
+						return Promise.resolve(proxy);
+					} else {
+						throw new Error('Can not update that which does not exist' + JSON.stringify(from));
+					}
 				}
 			});
 		}
@@ -2550,17 +2687,23 @@ var Table = function () {
 				var proxy = _this10.find(obj);
 
 				if (proxy) {
-					var datum = proxy.getDatum();
+					if (_this10.synthetic) {
+						_this10.synthetic.delete().then(function () {
+							return proxy;
+						});
+					} else {
+						var datum = proxy.getDatum();
 
-					return _this10.connector.delete(datum, datum, options).then(function (res) {
-						if (options.hook) {
-							options.hook(res);
-						}
+						return _this10.connector.delete(datum, datum, options).then(function (res) {
+							if (options.hook) {
+								options.hook(res);
+							}
 
-						_this10.del(obj);
+							_this10.del(obj);
 
-						return proxy;
-					});
+							return proxy;
+						});
+					}
 				} else {
 					throw new Error('Can not delete that which does not exist' + JSON.stringify(obj));
 				}
