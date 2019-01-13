@@ -1,3 +1,4 @@
+
 var schema = require('./Schema.js');
 
 // TODO : I don't think this should always call all?
@@ -17,7 +18,7 @@ function makeStub( table, old ){
 
 function makeMock( mock, method ){
 	return function( datum, ctx ){
-		return mock[method]( datum, ctx.$args );
+		return mock[method](datum, ctx.args, ctx.payload);
 	};
 }
 

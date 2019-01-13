@@ -36,8 +36,8 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 
 				return obj;
 			},
-			update: function( obj, args ){
-				testHook( obj, args );
+			update: function(obj, args, payload){
+				testHook(obj, args, payload);
 				return 'OK';
 			},
 			delete: function( obj, args ){
@@ -129,23 +129,22 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 
 		mockery.enable();
 
-		testHook = function( obj, args ){
+		testHook = function( obj, args, delta ){
 			expect( obj.hello ).toBe( 'world' );
 			expect( args.id ).toBe( 2 );
 			expect( args.hello ).toBeUndefined();
+			expect( delta.hello ).toBe('world');
 		};
 
-		table.update( {id:2}, {'hello':'world'}, {
+		table.update({id:2}, {'hello':'world'}, {
 			hook: function( res ){
 				called = true;
 				expect( res ).toBe( 'OK' );
 			}
-		})
-		.then(function( res ){
+		}).then(function( res ){
 			var was = table.find(2);
 
 			expect( res ).toBe( was );
-
 			return table.get( {id:2} ).then(function( gotten ){
 				var datum = gotten.getDatum();
 				

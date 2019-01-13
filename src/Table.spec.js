@@ -6,7 +6,7 @@ describe('bmoor-cache::Table', function(){
 		CacheProxy = require('./object/Proxy.js').default,
 		CacheCollection = require('./Collection.js');
 
-	describe('manaul mode', function(){
+	describe('manual mode', function(){
 		var table;
 
 		beforeEach(function(){
@@ -26,6 +26,7 @@ describe('bmoor-cache::Table', function(){
 			table.set( t );
 
 			expect( table.find( 1 ).getDatum() ).toBe( t );
+			expect( table.name ).toBe('test');
 		});
 	});
 
@@ -60,13 +61,10 @@ describe('bmoor-cache::Table', function(){
 			table.get(1234).then(function( d ){
 				expect( d.getDatum().foo ).toBe( 'bar' );
 				
-				table.get({id:1234}).then( function( d ){
+				return table.get({id:1234}).then( function( d ){
 					expect( d.getDatum().foo ).toBe( 'bar' );
 					
 					done();
-				}).catch( (ex) => {
-					console.log( ex.message );
-					console.log( ex );
 				});
 			}).catch( (ex) => {
 				console.log( ex.message );
@@ -581,7 +579,7 @@ describe('bmoor-cache::Table', function(){
 				// data can be in second collection, but isn't linked yet
 				expect( table1.collection.data.length )
 				.toBe( 2 );
-
+				
 				expect( table2.collection.data.length )
 				.toBe( 3 );
 
@@ -592,7 +590,9 @@ describe('bmoor-cache::Table', function(){
 				.toBeUndefined();
 
 				table1.collection.data[0].link('test2')
-				.then(() => {
+				.then(links => {
+					expect(links).toBeDefined();
+					
 					expect( table1.collection.data[0].$links.test2 )
 					.toBeDefined();
 
@@ -600,6 +600,9 @@ describe('bmoor-cache::Table', function(){
 					.toBeDefined();
 
 					done();
+				}).catch(ex => {
+					console.log(ex.message);
+					console.log(ex);
 				});
 			});
 
@@ -724,13 +727,13 @@ describe('bmoor-cache::Table', function(){
 				});
 			});
 
-			it('should work with inflate', function( done ){
+			it('should work with link with no parameters', function( done ){
 				table.get(1234).then(function( d ){
 					expect(d.getDatum().foo).toBe( 'bar' );
 
 					expect(d.$links).toBeUndefined();
 					
-					return d.inflate()
+					return d.link()
 					.then(function(links){
 						expect(links).toBe(d.$links);
 
@@ -826,12 +829,12 @@ describe('bmoor-cache::Table', function(){
 				});
 			});
 
-			it('should work with inflate', function( done ){
+			it('should work with link without parameters', function( done ){
 				table.get(1234).then(function( d ){
 					expect( d.getDatum().foo ).toBe( 'bar' );
 					expect( d.test2 ).toBeUndefined();
 					
-					return d.inflate()
+					return d.link()
 					.then(function(links){
 						expect(links).toBe(d.$links);
 
@@ -924,65 +927,5 @@ describe('bmoor-cache::Table', function(){
 		});
 	});
 
-	describe('table normalization', function(){
-		var table;
-
-		beforeEach(function(){
-			table = new Table('normalize',{
-				id: 'id',
-				connector: new Feed({
-					all: '/test/all'
-				}),
-				normalize: function( obj ){
-					if ( obj.id ){
-						obj.id = parseInt(obj.id);
-					}
-
-					if ( obj.other ){
-						obj.other = parseInt(obj.other);
-					}
-				}
-			});
-
-			httpMock.enable();
-		});
-
-		afterEach(function(){
-			httpMock.verifyWasFulfilled();
-		});
-
-		it('should use the same normalize method from proxy', function( done ){
-			httpMock.expect('/test/all').respond([{
-				id: 1,
-				value: 'v-1',
-				other: '1'
-			},{
-				id: '2',
-				value: 'v-2',
-				other: 1
-			},{
-				id: 3,
-				value: 'v-3',
-				other: '2'
-			},{
-				id: 4,
-				value: 'v-4',
-				other: '2'
-			}]);
-
-			table.select({other:1})
-			.then(function( res ){
-				expect( res.data.map(( d ) => d.getDatum().value) )
-				.toEqual(['v-1','v-2']);
-
-				table.select({other:2})
-				.then(function( res ){
-					expect( res.data.map(( d ) => d.getDatum().value) )
-					.toEqual(['v-3','v-4']);
-
-					done();
-				});
-			});
-		});
-	});
+	// NOTE : normalization is to be done by a proxy class
 });

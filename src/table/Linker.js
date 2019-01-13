@@ -98,11 +98,11 @@ Object.keys(joins).forEach( tableName => {
 */
 function stack( old, fn ){
 	if (!old){
-		return function(datum, onload, name){
+		return function stackFirst(datum, onload, name){
 			return [fn(datum, onload, name)];
 		};
 	}else{
-		return function(datum, onload, name){
+		return function stackNext(datum, onload, name){
 			var rtn = old(datum, onload, name);
 
 			rtn.push(fn(datum, onload, name));
@@ -121,7 +121,7 @@ function stack( old, fn ){
 **/
 function linkFn(key, sibling, target, type, link){
 	return {
-		add: function(datum, onload, name){
+		add: function linkAdd(datum, onload, name){
 			var ctrl = datum;
 
 			if (name && sibling.name !== name){
@@ -166,13 +166,14 @@ function linkFn(key, sibling, target, type, link){
 **/
 function childFn(key, child, target, type, link){
 	return {
-		add: function(datum, onload, name){
+		add: function childAdd(datum, onload, name){
 			var ctrl = datum;
 
-			if (name && target.name !== name){
+			if (name && child.name !== name){
 				return;
 			}
 
+			// prevents 
 			if (onload && !link.auto){
 				return;
 			}
@@ -183,7 +184,7 @@ function childFn(key, child, target, type, link){
 
 			// link back to the original datum
 			let values = bmoor.get(datum, key);
-
+			
 			// push data to child, and link back to origin
 			let set = value => {
 				if (link.massage){

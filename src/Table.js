@@ -204,38 +204,20 @@ class Table {
 				return this.synthetic.get(datum)
 				.then(() => this.find(obj));
 			};
-		}else if ( batch || batch === 0 ){
-			if ( this.batched ){
-				this.batched.list.push( obj ); 
-			}else{
-				this.batched = {
-					list: [ obj ],
-					promise: new Promise(( resolve, reject ) => {
-						setTimeout( () => {
-							var batched = this.batched;
-
-							this.batched = null;
-
-							return this.getMany( batched.list )
-							.then( resolve, reject );
-						}, batch );
-					})
-				};
-			}
-
+		}else if (batch || batch === 0){
 			fetch = datum => {
-				return this.batched.promise
-				.then( () => this.find(datum) );
+				return this.getMany([datum])
+				.then(() => this.find(datum));
 			};
 		}else{
 			fetch = datum => {
-				return this.connector.read( this.$encode(datum), null, options )
-				.then( ( res ) => {
-					if ( options.hook ){
-						options.hook( res );
+				return this.connector.read(this.$encode(datum), null, options)
+				.then(res => {
+					if (options.hook){
+						options.hook(res);
 					}
 
-					return this.set( res );
+					return this.set(res);
 				});
 			};
 		}
@@ -318,9 +300,8 @@ class Table {
 		}
 
 		return this.before( 'get-many', arr ).then( () => {
-			var rtn,
-				all = [],
-				req = [];
+			const all = [];
+			const req = [];
 
 			// reduce the list using gotten
 			if ( this.gotten ){
@@ -345,28 +326,51 @@ class Table {
 				});
 			}
 
-			if ( req.length ){
-				// this works because I can assume id was defined for 
-				// the feed
-				if (this.synthetic && this.synthetic.getMany){
-					rtn = this.synthetic.getMany(req, options);
-				}else if ( this.connector.readMany ){
-					rtn = this.connector.readMany( req, null, options );
-				}else{
-					// The feed doesn't have readMany, so many reads will work
-					req.forEach( ( id, i ) => {
-						req[i] = this.connector.read( id, null, options );
-					});
-					rtn = Promise.all( req );
-				}
-			}else{
-				rtn = Promise.resolve( [] ); // nothing to do
+			let batch = 'batch' in options ? options.batch :
+				('batch' in defaultSettings ? defaultSettings.batch : 0);
+
+			if (this.$getMany) {
+				this.$getMany.list = this.$getMany.list.concat(req);
+			} else {
+				this.$getMany = {
+					list: req,
+					promise: new Promise((resolve, reject) => {
+						setTimeout( () => {
+							var many = this.$getMany;
+
+							this.$getMany = null;
+							
+							return this._getMany(many.list, all, options)
+							.then(resolve, reject);
+						}, batch);
+					})
+				};
 			}
 
-			return this.setMany( rtn, all, options.hook );
+			return this.$getMany.promise;
 		});
 	}
 
+	_getMany(arr, all, options){
+		let rtn = null;
+
+		if ( arr.length ){
+			// this works because I can assume id was defined for 
+			// the feed
+			if (this.synthetic && this.synthetic.getMany){
+				rtn = this.synthetic.getMany(arr, options);
+			} else if (this.connector.readMany){
+				rtn = this.connector.readMany(arr, null, options);
+			} else {
+				// The feed doesn't have readMany, so many reads will work
+				rtn = Promise.all(arr.map(id => this.connector.read(id, null, options)));
+			}
+		} else {
+			rtn = Promise.resolve([]); // nothing to do
+		}
+
+		return this.setMany(rtn, all, options.hook);
+	}
 	// -- all
 	// all returns back the whole collection.  Allowing obj for dynamic
 	// urls
@@ -495,7 +499,7 @@ class Table {
 					return this.connector.update(from, delta, options)
 					.then( ( res ) => {
 						if ( options.hook ){
-							options.hook( res );
+							options.hook(res, from, delta);
 						}
 
 						if ( !options.ignoreResponse && bmoor.isObject(res) ){
