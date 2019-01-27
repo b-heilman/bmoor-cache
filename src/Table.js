@@ -115,9 +115,7 @@ class Table {
 			return parser( this.$datum(obj) );
 		};
 
-		if ( ops.partialList ){
-			this.gotten = true;
-		}
+		this._getting = {};
 
 		this.reset();
 	}
@@ -126,10 +124,7 @@ class Table {
 		this.collection = this.collectionFactory();
 		this.index = this.collection.index( this.$id );
 		this._selections = {};
-
-		if ( this.gotten ){
-			this.gotten = {};
-		}
+		this._getting = {};
 	}
 
 	// no promise routes
@@ -158,9 +153,7 @@ class Table {
 				this.collection.add( t );
 			}
 
-			if ( this.gotten ){
-				this.gotten[ id ] = true;
-			}
+			this._getting[id] = null;
 
 			if (this.linker){
 				return this.linker.add(t);
@@ -187,8 +180,10 @@ class Table {
 	}
 
 	// -- get
-	get( obj, options ){
-		var fetch;
+	get(obj, options){
+		const id = this.$id(obj);
+
+		let fetch = null;
 
 		if ( !options ){
 			options = {};
@@ -207,11 +202,14 @@ class Table {
 		}else if (batch || batch === 0){
 			fetch = datum => {
 				return this.getMany([datum])
-				.then(() => this.find(datum));
+				.then(() => {
+					return this.find(datum);
+				});
 			};
 		}else{
 			fetch = datum => {
-				return this.connector.read(this.$encode(datum), null, options)
+				
+				const rtn = this.connector.read(this.$encode(datum), null, options)
 				.then(res => {
 					if (options.hook){
 						options.hook(res);
@@ -219,20 +217,28 @@ class Table {
 
 					return this.set(res);
 				});
+
+				this._getting[id] = rtn;
+
+				return rtn;
 			};
 		}
 
 		return this.before( 'get' ).then( () => {
-			var t = this.find(obj);
+			const t = this.find(id);
 			
-			if ( !t || (options&&options.cached===false) ){
-				return fetch(obj);
-			}else{
-				if ( this.gotten && !this.gotten[this.$id(obj)] ){
-					return fetch(obj);
+			if (!t || (options&&options.cached===false)){
+				// this needs to be an active promise
+				if (this._getting[id]) {
+					return this._getting[id]
+					.then(() => {
+						return this.find(id);
+					});
 				}else{
-					return t;
+					return fetch(obj);
 				}
+			}else{
+				return t;
 			}
 		});
 	}
@@ -248,32 +254,23 @@ class Table {
 		return this.get( obj, options );
 	}
 
-	setMany( prom, ids, hook ){
-		var rtn = prom.then( res => {
+	setMany(prom, hook){
+		if (!prom.then){
+			prom = Promise.resolve(prom);
+		}
+
+		return prom.then( res => {
 			if ( hook ){
 				hook( res );
 			}
 
 			return Promise.all(res.map(r => this.set(r)));
 		});
-		
-		return rtn.then( res => {
-			var collection = this.collectionFactory();
-
-			if ( ids ){
-				ids.forEach( ( id, i ) => {
-					collection.data[i] = this.index.get( id );
-				});
-			}else{
-				res.forEach( ( p, i ) => {
-					collection.data[i] = p;
-				});
-			}
-
-			return collection;
-		});
 	}
 
+	/**
+	* No cacheing here because I can't programatically figure out what ids are being requested
+	**/
 	fetch( qry, options ){
 		if ( !options ){
 			options = {};
@@ -289,7 +286,16 @@ class Table {
 				rtn = this.connector.query(qry, null, options);
 			}
 
-			return this.setMany(rtn, null, options.hook);
+			return this.setMany(rtn, options.hook)
+			.then(res => {
+				const collection = this.collectionFactory();
+
+				res.forEach(( p, i ) => {
+					collection.data[i] = p;
+				});
+
+				return collection;
+			});
 		});
 	}
 
@@ -299,78 +305,101 @@ class Table {
 			options = {};
 		}
 
-		return this.before( 'get-many', arr ).then( () => {
+		return this.before( 'get-many', arr )
+		.then(() => {
 			const all = [];
 			const req = [];
 
 			// reduce the list using gotten
-			if ( this.gotten ){
-				arr.forEach( ( r ) => {
-					var t = this.$id(r);
+			arr.forEach( ( r ) => {
+				var t = this.$id(r);
 
-					all.push( t );
+				all.push(t);
 
-					if ( !this.gotten[t] ){
-						req.push( this.$encode(r) );
-					}
+				if (!this.index.get(t)){
+					req.push(t);
+				}
+			});
+
+			return this._getMany(req, all, options)
+			.then(() => {
+				var collection = this.collectionFactory();
+
+				all.forEach((id, i) => {
+					collection.data[i] = this.index.get(id);
 				});
-			}else{
-				arr.forEach( ( r ) => {
-					var t = this.$id(r);
 
-					all.push( t );
-
-					if ( !this.index.get(t) ){
-						req.push( this.$encode(r) );
-					}
-				});
-			}
-
-			let batch = 'batch' in options ? options.batch :
-				('batch' in defaultSettings ? defaultSettings.batch : 0);
-
-			if (this.$getMany) {
-				this.$getMany.list = this.$getMany.list.concat(req);
-			} else {
-				this.$getMany = {
-					list: req,
-					promise: new Promise((resolve, reject) => {
-						setTimeout( () => {
-							var many = this.$getMany;
-
-							this.$getMany = null;
-							
-							return this._getMany(many.list, all, options)
-							.then(resolve, reject);
-						}, batch);
-					})
-				};
-			}
-
-			return this.$getMany.promise;
+				return collection;
+			});
 		});
 	}
 
-	_getMany(arr, all, options){
+	/**
+	* arr => array of ids
+	**/
+	_getMany(arr, options){
+		const loading = [];
+
 		let rtn = null;
 
-		if ( arr.length ){
-			// this works because I can assume id was defined for 
-			// the feed
-			if (this.synthetic && this.synthetic.getMany){
-				rtn = this.synthetic.getMany(arr, options);
-			} else if (this.connector.readMany){
-				rtn = this.connector.readMany(arr, null, options);
-			} else {
-				// The feed doesn't have readMany, so many reads will work
-				rtn = Promise.all(arr.map(id => this.connector.read(id, null, options)));
-			}
-		} else {
-			rtn = Promise.resolve([]); // nothing to do
+		if (arr.length && !this.$getMany) {
+			const batch = 'batch' in options ? options.batch :
+				('batch' in defaultSettings ? defaultSettings.batch : 0);
+
+			this.$getMany = this.setMany(new Promise((resolve, reject) => {
+				setTimeout(() => {
+					const thread = this.$getMany;
+
+					this.$getMany = null;
+
+					let prom = null;
+					let req = [];
+					
+					for (let id in this._getting){
+						let t = this._getting[id];
+
+						if (t === thread){
+							req.push(this.$encode(id));
+						}
+					}
+
+					if ( req.length ){
+						// this works because I can assume id was defined for 
+						// the feed
+						if (this.synthetic && this.synthetic.getMany){
+							prom = this.synthetic.getMany(req, options);
+						} else if (this.connector.readMany){
+							prom = this.connector.readMany(req, null, options);
+						} else {
+							// The feed doesn't have readMany, so many reads will work
+							prom = Promise.all(req.map(id => this.connector.read(id, null, options)));
+						}
+					} else {
+						prom = Promise.resolve([]); // nothing to do
+					}
+
+					return prom.then(resolve, reject);
+				}, batch);
+			}), options.hook);
 		}
 
-		return this.setMany(rtn, all, options.hook);
+		rtn = this.$getMany;
+
+		loading.push(rtn);
+
+		arr.forEach(id => {
+			if (id in this._getting){
+				// assumed to be either null or a promise
+				loading.push(this._getting[id]);
+			} else {
+				this._getting[id] = rtn;
+			}
+		});
+
+		return Promise.all(loading);
 	}
+
+	
 	// -- all
 	// all returns back the whole collection.  Allowing obj for dynamic
 	// urls

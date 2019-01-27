@@ -1,6 +1,6 @@
 {
   "name": "bmoor-cache",
-  "version": "0.4.21",
+  "version": "0.4.22",
   "author": "Brian Heilman <das.ist.junk@gmail.com>",
   "description": "Managing data and remote sources",
   "license": "MIT",
@@ -16,9 +16,9 @@
   "dependencies": {
     "babel-polyfill": "^6.26.0",
     "bmoor": "^0.4.10",
-    "bmoor-comm": "~0.4.15",
-    "bmoor-data": "^0.4.26",
-    "formdata-polyfill": "^3.0.11"
+    "bmoor-comm": "^0.4.17",
+    "bmoor-data": "^0.4.28",
+    "formdata-polyfill": "^3.0.13"
   },
   "devDependencies": {
     "babel-core": "^6.26.3",
@@ -30,9 +30,9 @@
     "gulp-load-plugins": "^1.5.0",
     "gulp-webserver": "0.9.1",
     "jasmine": "^2.9.0",
-    "jshint": "^2.9.5",
+    "jshint": "^2.9.7",
     "jshint-stylish": "2.1.0",
-    "karma": "^2.0.4",
+    "karma": "^2.0.5",
     "karma-chrome-launcher": "^2.2.0",
     "karma-ie-launcher": "^1.0.0",
     "karma-jasmine": "^1.1.2",

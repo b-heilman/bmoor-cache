@@ -90,6 +90,80 @@ describe('bmoor-cache::Table', function(){
 			});
 		});
 
+		it('should batch parallel requests - same values', function( done ){
+			httpMock.expect('/test?id[]=1&id[]=2').respond([
+				{ id: 1 },
+				{ id: 2 }
+			]);
+
+			Promise.all([
+				table.getMany([1,2]).then(function( d ){
+					expect( d.data.length ).toBe( 2 );
+					expect( d.data[0].getDatum().id ).toBe( 1 );
+					expect( d.data[1].getDatum().id ).toBe( 2 );
+				}),
+				table.getMany([1,2]).then(function( d ){
+					expect( d.data.length ).toBe( 2 );
+					expect( d.data[0].getDatum().id ).toBe( 1 );
+					expect( d.data[1].getDatum().id ).toBe( 2 );
+				}),
+			]).then(done, done);
+		});
+
+		it('should batch parallel requests - different values', function( done ){
+			httpMock.expect('/test?id[]=1&id[]=2&id[]=3&id[]=4').respond([
+				{ id: 1 },
+				{ id: 2 },
+				{ id: 3 },
+				{ id: 4 }
+			]);
+
+			Promise.all([
+				table.getMany([1,2]).then(function( d ){
+					expect( d.data.length ).toBe( 2 );
+					expect( d.data[0].getDatum().id ).toBe( 1 );
+					expect( d.data[1].getDatum().id ).toBe( 2 );
+				}),
+				table.getMany([3,4]).then(function( d ){
+					expect( d.data.length ).toBe( 2 );
+					expect( d.data[0].getDatum().id ).toBe( 3 );
+					expect( d.data[1].getDatum().id ).toBe( 4 );
+				}),
+			]).then(done, done);
+		});
+
+		it('should batch parallel requests - different values with gets', function( done ){
+			httpMock.expect('/test?id[]=1&id[]=2&id[]=3&id[]=4&id[]=5').respond([
+				{ id: 1 },
+				{ id: 2 },
+				{ id: 3 },
+				{ id: 4 },
+				{ id: 5 }
+			]);
+
+			Promise.all([
+				table.get(5, {batch:1}).then(res => {
+					expect( res.getDatum().id ).toBe( 5 );
+				}),
+				table.get(2, {batch:1}).then(res => {
+					expect( res.getDatum().id ).toBe( 2 );
+				}),
+				table.get(3, {batch:1}).then(res => {
+					expect( res.getDatum().id ).toBe( 3 );
+				}),
+				table.getMany([1,2]).then(function( d ){
+					expect( d.data.length ).toBe( 2 );
+					expect( d.data[0].getDatum().id ).toBe( 1 );
+					expect( d.data[1].getDatum().id ).toBe( 2 );
+				}),
+				table.getMany([3,4]).then(function( d ){
+					expect( d.data.length ).toBe( 2 );
+					expect( d.data[0].getDatum().id ).toBe( 3 );
+					expect( d.data[1].getDatum().id ).toBe( 4 );
+				}),
+			]).then(done, done);
+		});
+
 		it('should cache a read request - with objects', function( done ){
 			httpMock.expect('/test?id[]=1&id[]=2').respond([
 				{ id: 1 },
@@ -123,7 +197,7 @@ describe('bmoor-cache::Table', function(){
 
 				done();
 			}).catch( ex => {
-				console.log( ex.message);
+				console.log('exception ->', ex.message);
 				console.log( ex );
 			});
 		});
