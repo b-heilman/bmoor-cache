@@ -59,7 +59,12 @@ module.exports = function(config) {
         },
 
         client: {
-            captureConsole: true
+            captureConsole: true,
+            jasmine: {
+                configure: {
+                    random: false
+                }
+            }
         },
 
         reporters: ['progress'],

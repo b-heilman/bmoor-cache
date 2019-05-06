@@ -1,10 +1,10 @@
 describe('bmoor-cache::Table', function(){
 
-	var Feed = require('bmoor-comm').connect.Feed,
-		Table = require('./Table.js'),
-		httpMock = new (require('bmoor-comm').testing.Requestor)(),
-		CacheProxy = require('./object/Proxy.js').default,
-		CacheCollection = require('./Collection.js');
+	const Feed = require('bmoor-comm').connect.Feed;
+	const Table = require('./Table.js');
+	const httpMock = new (require('bmoor-comm').testing.Requestor)();
+	const CacheProxy = require('./object/Proxy.js').default;
+	const CacheCollection = require('./Collection.js');
 
 	describe('manual mode', function(){
 		var table;
@@ -24,6 +24,8 @@ describe('bmoor-cache::Table', function(){
 				};
 
 			table.set( t );
+
+			table.collection.next.flush();
 
 			expect( table.find( 1 ).getDatum() ).toBe( t );
 			expect( table.name ).toBe('test');
@@ -58,40 +60,45 @@ describe('bmoor-cache::Table', function(){
 				foo: 'bar'
 			});
 
-			table.get(1234).then(function( d ){
+			table.get(1234)
+			.then(function( d ){
 				expect( d.getDatum().foo ).toBe( 'bar' );
+				
+				// make sure index gets this
+				table.collection.next.flush();
 				
 				return table.get({id:1234}).then( function( d ){
 					expect( d.getDatum().foo ).toBe( 'bar' );
 					
 					done();
 				});
-			}).catch( (ex) => {
-				console.log( ex.message );
-				console.log( ex );
-			});
+			}).catch(done);
 		});
 
-		it('should cache a read request', function( done ){
-			httpMock.expect('/test?id[]=1&id[]=2').respond([
+		it('should cache a read many request', function( done ){
+			httpMock.expect('/test?id[]=1%2C2').respond([
 				{ id: 1 },
 				{ id: 2 }
 			]);
 
-			table.getMany([1,2]).then(function( d ){
+			table.getMany([1,2])
+			.then(d => {
 				expect( d.data.length ).toBe( 2 );
 				expect( d.data[0].getDatum().id ).toBe( 1 );
 				expect( d.data[1].getDatum().id ).toBe( 2 );
 
-				table.getMany([1,2]).then(function( d ){
+				table.collection.next.flush();
+
+				table.getMany([1,2])
+				.then(function( d ){
 					expect( d.data.length ).toBe( 2 );
 					done();
 				});
-			});
+			}).catch(done);
 		});
 
 		it('should batch parallel requests - same values', function( done ){
-			httpMock.expect('/test?id[]=1&id[]=2').respond([
+			httpMock.expect('/test?id[]=1%2C2').respond([
 				{ id: 1 },
 				{ id: 2 }
 			]);
@@ -111,7 +118,7 @@ describe('bmoor-cache::Table', function(){
 		});
 
 		it('should batch parallel requests - different values', function( done ){
-			httpMock.expect('/test?id[]=1&id[]=2&id[]=3&id[]=4').respond([
+			httpMock.expect('/test?id[]=1%2C2%2C3%2C4').respond([
 				{ id: 1 },
 				{ id: 2 },
 				{ id: 3 },
@@ -133,7 +140,7 @@ describe('bmoor-cache::Table', function(){
 		});
 
 		it('should batch parallel requests - different values with gets', function( done ){
-			httpMock.expect('/test?id[]=1&id[]=2&id[]=3&id[]=4&id[]=5').respond([
+			httpMock.expect('/test?id[]=1%2C2%2C3%2C4%2C5').respond([
 				{ id: 1 },
 				{ id: 2 },
 				{ id: 3 },
@@ -165,7 +172,7 @@ describe('bmoor-cache::Table', function(){
 		});
 
 		it('should cache a read request - with objects', function( done ){
-			httpMock.expect('/test?id[]=1&id[]=2').respond([
+			httpMock.expect('/test?id[]=1%2C2').respond([
 				{ id: 1 },
 				{ id: 2 }
 			]);
@@ -183,7 +190,7 @@ describe('bmoor-cache::Table', function(){
 		});
 
 		it('should allow a read to batch to many', function( done ){
-			httpMock.expect('/test?id[]=10&id[]=20').respond([
+			httpMock.expect('/test?id[]=10%2C20').respond([
 				{ id: 10 },
 				{ id: 20 }
 			]);
@@ -196,10 +203,7 @@ describe('bmoor-cache::Table', function(){
 				expect( d[1].getDatum().id ).toBe( 20 );
 
 				done();
-			}).catch( ex => {
-				console.log('exception ->', ex.message);
-				console.log( ex );
-			});
+			}).catch(done);
 		});
 		
 		describe('all requests', function(){
@@ -321,10 +325,7 @@ describe('bmoor-cache::Table', function(){
 							done();
 						});
 					});
-				}).catch( (ex) => {
-					console.log( ex.message );
-					console.log( ex );
-				});
+				}).catch(done);
 			});
 		});
 
@@ -342,7 +343,7 @@ describe('bmoor-cache::Table', function(){
 
 				expect( a.getDatum() ).toEqual( ein );
 			
-				table.update(1,{foo:'bar2'}, {hook:function( res ){
+				return table.update(1,{foo:'bar2'}, {hook:function( res ){
 					called = true;
 					expect( res ).toBe( 'OK' );
 				}})
@@ -353,7 +354,7 @@ describe('bmoor-cache::Table', function(){
 
 					done();
 				});
-			});
+			}).catch(done);
 		});
 
 		it('should update correctly - 2', function( done ){
@@ -369,18 +370,18 @@ describe('bmoor-cache::Table', function(){
 			table.get(1).then(function( a ){
 				expect( a.getDatum() ).toEqual( ein );
 			
-				table.update(1,{foo:'bar2'}).then( function( d ){
+				return table.update(1,{foo:'bar2'}).then( function( d ){
 					expect( d ).toBe( a ); // returns back raw
 					expect( a.getDatum().foo ).toBe( 3 );
 
-					table.update(1,{foo:'bar3'}).then( function( d ){
+					return table.update(1,{foo:'bar3'}).then( function( d ){
 						expect( d ).toBe( a ); // returns back raw
 						expect( a.getDatum().foo ).toBe( 30 );
 						
 						done();
 					});
 				});
-			});
+			}).catch(done);
 		});
 
 		describe('::insert', function(){
@@ -396,7 +397,7 @@ describe('bmoor-cache::Table', function(){
 					expect( d.$('hello') ).toBeUndefined();
 				
 					done();
-				});
+				}).catch(done);
 			});
 		});
 
@@ -415,7 +416,7 @@ describe('bmoor-cache::Table', function(){
 					expect( res.data.length ).toBe( 3 );
 
 					done();
-				});
+				}).catch(done);
 			});
 
 			it('should cache selectes', function( done ){
@@ -480,10 +481,7 @@ describe('bmoor-cache::Table', function(){
 
 						done();
 					});
-				}).catch( (ex) => { 
-					console.log( ex.message );
-					console.log( ex );
-				});
+				}).catch(done);
 			});
 		});
 	});
@@ -520,27 +518,27 @@ describe('bmoor-cache::Table', function(){
 				{ id: 7, type: 'dog' }
 			]);
 
-			table.select({type:'dog'}).then(function( res ){
+			table.select({type:'dog'})
+			.then(function( res ){
 				expect( res.data.length ).toBe( 3 );
 
-				return table.select({type:'dog'},{cached:false}).then(function( res ){
+				return table.select({type:'dog'},{cached:false})
+				.then(function( res ){
 					expect( res.data.length ).toBe( 4 );
 
 					done();
 				});
-			}).catch( (ex) => {
-				console.log( ex.message );
-				console.log( ex );
-			});
+			}).catch(done);
 		});
 	});
 
 	describe('::linker', function(){
 		var table1,
-			table2;
+			table2,
+			table3;
 
 		describe('child-one', function(){
-			beforeEach(function(){
+			beforeEach(function(done){
 				table1 = new Table('test1',{
 					id: 'id'
 				});
@@ -549,58 +547,97 @@ describe('bmoor-cache::Table', function(){
 					links: [{
 						type: 'child-one', 
 						table: 'test1',
-						key: 'link',
+						key: 'zwei',
 						target: 'backref',
 						auto: true
 					}]
 				});
+				table3 = new Table('test3',{
+					id: 'id',
+					links: [{
+						type: 'child-one', 
+						table: 'test1',
+						key: 'drei',
+						target: 'test1'
+					}]
+				});
 				
-				table1.set({
-					id: 'ok',
-					hello: 1,
-					link: {
-						foo: 'bar'
-					}
+				Promise.all([
+					table1.set({
+						id: 'ok',
+						hello: 1,
+						zwei: {
+							foo: 'bar'
+						},
+						drei: {
+							id: 'hello'
+						}
+					}),
+					table1.set({
+						id: 'ok2',
+						hello: 1,
+						zwei: {
+							foo: 'bar2'
+						}
+					})
+				]).then(() => {
+					done();
 				});
-
-				table1.set({
-					id: 'ok2',
-					hello: 1,
-					link: {
-						foo: 'bar2'
-					}
-				});
+				
 			});
 
+			/**
+			* This is a test where I am checking that auto linking works, and links not marked auto
+			* won't be linked until the link is called
+			*/
 			it('should automatically populate child table', function(done){
 				// data can be in second collection, but isn't linked yet
-				expect( table1.collection.data.length )
-				.toBe( 2 );
+				expect(table1.collection.data.length)
+				.toBe(2);
 
-				expect( table2.collection.data.length )
-				.toBe( 2 );
+				expect(table1.collection.data[0].$links.test2)
+				.toBeDefined();
 
-				expect( table1.collection.data[0].$links )
+				expect(table1.collection.data[0].$links.test3)
 				.toBeUndefined();
 
-				expect( table2.collection.data[0].$links )
-				.toBeUndefined();
+				expect(table2.collection.data.length)
+				.toBe(2);
 
-				table1.collection.data[0].link('test2')
-				.then(() => {
-					expect( table1.collection.data[0].$links.test2 )
+				expect(table2.collection.data[0].$links.backref)
+				.toBeDefined();
+
+				expect(table3.collection.data.length)
+				.toBe(0);
+
+				Promise.all([
+					table1.collection.data[0].link('test3'),
+					table1.collection.data[1].link('test3')
+				]).then(() => {
+					expect(table1.collection.data.length)
+					.toBe(2);
+
+					expect(table1.collection.data[0].$links.test3)
 					.toBeDefined();
 
-					expect( table2.collection.data[0].$links.backref )
+					expect(table1.collection.data[1].$links.test3)
+					.toBe(null);
+
+					expect(table3.collection.data.length)
+					.toBe(1);
+
+					expect(table3.collection.data[0].$links.test1)
 					.toBeDefined();
 
 					done();
-				});
+				}).catch(done);
 			});
+
+			// TODO : what happens if ok2 gets updates to have drei
 		});
 
 		describe('child-many', function(){
-			beforeEach(function(){
+			beforeEach(function(done){
 				table1 = new Table('test1',{
 					id: 'id',
 					connector: new Feed({
@@ -630,23 +667,26 @@ describe('bmoor-cache::Table', function(){
 					}
 				});
 				
-				table1.set({
-					id: 'ok',
-					hello: 1,
-					links: [{
-						foo: 'bar'
-					}]
-				});
-
-				table1.set({
-					id: 'ok2',
-					hello: 1,
-					links: [{
-						foo: 'bar2'
-					},{
-						foo: 'bar3'
-					}]
-				});
+				Promise.all([
+					table1.set({
+						id: 'ok',
+						hello: 1,
+						links: [{
+							foo: 'bar'
+						}]
+					}),
+					table1.set({
+						id: 'ok2',
+						hello: 1,
+						links: [{
+							foo: 'bar2'
+						},{
+							foo: 'bar3'
+						}]
+					})
+				]).then(() => {
+					done();
+				}, done);
 			});
 
 			it('should automatically populate child table', function(done){
@@ -658,10 +698,10 @@ describe('bmoor-cache::Table', function(){
 				.toBe( 3 );
 
 				expect( table1.collection.data[0].$links )
-				.toBeUndefined();
+				.toBeDefined();
 
 				expect( table2.collection.data[0].$links )
-				.toBeUndefined();
+				.toBeDefined();
 
 				table1.collection.data[0].link('test2')
 				.then(links => {
@@ -674,10 +714,7 @@ describe('bmoor-cache::Table', function(){
 					.toBeDefined();
 
 					done();
-				}).catch(ex => {
-					console.log(ex.message);
-					console.log(ex);
-				});
+				}).catch(done);
 			});
 
 			it('should bind directly to the array', function(){
@@ -795,10 +832,7 @@ describe('bmoor-cache::Table', function(){
 						
 						done();
 					});
-				}).catch( (ex) => {
-					console.log( ex.message );
-					console.log( ex );
-				});
+				}).catch(done);
 			});
 
 			it('should work with link with no parameters', function( done ){
@@ -816,10 +850,7 @@ describe('bmoor-cache::Table', function(){
 						
 						done();
 					});
-				}).catch( (ex) => {
-					console.log( ex.message );
-					console.log( ex );
-				});
+				}).catch(done);
 			});
 		});
 
@@ -874,7 +905,7 @@ describe('bmoor-cache::Table', function(){
 					link: [2,3]
 				});
 
-				httpMock.expect('/test2?id[]=2&id[]=3').respond([{
+				httpMock.expect('/test2?id[]=2%2C3').respond([{
 					id: 2,
 					type: 'test2-2'
 				},{
@@ -897,10 +928,7 @@ describe('bmoor-cache::Table', function(){
 						
 						done();
 					});
-				}).catch( (ex) => {
-					console.log( ex.message );
-					console.log( ex );
-				});
+				}).catch(done);
 			});
 
 			it('should work with link without parameters', function( done ){
@@ -917,10 +945,7 @@ describe('bmoor-cache::Table', function(){
 						
 						done();
 					});
-				}).catch( (ex) => {
-					console.log( ex.message );
-					console.log( ex );
-				});
+				}).catch(done);
 			});
 		});
 	});
@@ -994,12 +1019,9 @@ describe('bmoor-cache::Table', function(){
 				expect( t instanceof CacheCollection ).toBe( true );
 			
 				done();
-			}).catch( (ex) => {
-				console.log( ex.message );
-				console.log( ex );
-			});
+			}).catch(done);
 		});
 	});
-
+	
 	// NOTE : normalization is to be done by a proxy class
 });

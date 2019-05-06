@@ -32,12 +32,8 @@ class Table {
 
 		this.name = name;
 
-		if (ops.synthetic){
-			// TODO : I might move synthetic to its own table like class
-			this.synthetic = ops.synthetic;
-		}else{
-			this.connector = ops.connector;
-		}
+		this.synthetic = ops.synthetic;
+		this.connector = ops.connector;
 		
 		if ( ops.proxy && !ops.proxyFactory ){
 			console.warn('ops.proxy will be deprecated in next major version');
@@ -58,7 +54,9 @@ class Table {
 			);
 		}
 
-		this.linker = new Linker(this, ops.links);
+		if (ops.links){
+			this.linker = new Linker(this, ops.links);
+		}
 
 		this.before = ops.before || function(){
 			return Promise.resolve(true);
@@ -81,7 +79,7 @@ class Table {
 
 				if ( qry instanceof DataProxy ){
 					return qry.getDatum();
-				}else if ( bmoor.isObject(qry) ){
+				}else if (bmoor.isObject(qry) && !bmoor.isArray(qry)){
 					return qry;
 				}else{
 					t = {};
@@ -121,7 +119,7 @@ class Table {
 	}
 
 	reset(){
-		this.collection = this.collectionFactory();
+		this.collection = this.collectionFactory([]);
 		this.index = this.collection.index( this.$id );
 		this._selections = {};
 		this._getting = {};
@@ -155,11 +153,15 @@ class Table {
 
 			this._getting[id] = null;
 
-			if (this.linker){
-				return this.linker.add(t);
-			}else{
-				return Promise.resolve(t);
-			}
+			return this.collection.promise()
+			.then(() => {
+				if (this.linker){
+					return this.linker.add(t);
+				}else{
+					return t;
+				}
+			});
+
 		}else{
 			throw new Error(
 				'missing id for object: '+JSON.stringify( obj )
@@ -194,9 +196,10 @@ class Table {
 		let batch = 'batch' in options ? options.batch :
 				( 'batch' in defaultSettings ? defaultSettings.batch : null );
 
-		if (this.synthetic){
+		if (this.synthetic && this.synthetic.get){
 			fetch = datum => {
 				return this.synthetic.get(datum)
+				.then(() => this.collection.promise())
 				.then(() => this.find(obj));
 			};
 		}else if (batch || batch === 0){
@@ -279,16 +282,17 @@ class Table {
 		return this.before( 'fetch', qry ).then( () => {
 			var rtn;
 
-			if (this.synthetic){
+			if (this.synthetic && this.synthetic.fetch){
 				// NOTE : I don't love this...
-				rtn = this.synthetic.fetch(qry, options);
+				rtn = this.synthetic.fetch(qry, options)
+				.then(res => this.collection.promise().then(() => res));
 			}else{
 				rtn = this.connector.query(qry, null, options);
 			}
 
 			return this.setMany(rtn, options.hook)
 			.then(res => {
-				const collection = this.collectionFactory();
+				const collection = this.collectionFactory([]);
 
 				res.forEach(( p, i ) => {
 					collection.data[i] = p;
@@ -321,9 +325,10 @@ class Table {
 				}
 			});
 
-			return this._getMany(req, all, options)
+			return this._getMany(req, options)
+			.then(() => this.collection.promise())
 			.then(() => {
-				var collection = this.collectionFactory();
+				var collection = this.collectionFactory([]);
 
 				all.forEach((id, i) => {
 					collection.data[i] = this.index.get(id);
@@ -356,20 +361,23 @@ class Table {
 					let req = [];
 					
 					for (let id in this._getting){
-						let t = this._getting[id];
-
-						if (t === thread){
-							req.push(this.$encode(id));
+						if (this._getting[id] === thread){
+							req.push(id);
 						}
 					}
 
 					if ( req.length ){
 						// this works because I can assume id was defined for 
 						// the feed
+						const query = this.$encode(req);
+
 						if (this.synthetic && this.synthetic.getMany){
-							prom = this.synthetic.getMany(req, options);
+							prom = this.synthetic.getMany(query, options)
+							.then(res => this.collection.promise()
+								.then(() => res)
+							);
 						} else if (this.connector.readMany){
-							prom = this.connector.readMany(req, null, options);
+							prom = this.connector.readMany(query, null, options);
 						} else {
 							// The feed doesn't have readMany, so many reads will work
 							prom = Promise.all(req.map(id => this.connector.read(id, null, options)));
@@ -429,7 +437,7 @@ class Table {
 
 					this.consume( res );
 					
-					return this.collection;
+					return this.collection.promise();
 				});
 			}
 
@@ -446,12 +454,13 @@ class Table {
 		return this.before( 'insert', obj ).then( () => {
 			var t = this.find( obj );
 
-			if (this.synthetic){
+			if (this.synthetic && this.synthetic.insert){
 				// if it exists, don't do anything
 				if ( t ){
 					return Promise.resolve(t);
 				}else{
 					return this.synthetic.insert(obj, options)
+					.then(() => this.collection.promise())
 					.then(() => this.find(obj));
 				}
 			}else{
@@ -482,13 +491,15 @@ class Table {
 					})
 					.then( datum => {
 						return this.set( datum )
-						.then( proxy => {
-							if ( options.useProto ){
-								proxy.merge( obj );
-							}
+						.then(proxy => this.collection.promise()
+							.then(() => {
+								if ( options.useProto ){
+									proxy.merge( obj );
+								}
 
-							return proxy;
-						});
+								return proxy;
+							})
+						);
 					});
 				}
 			}
@@ -520,24 +531,28 @@ class Table {
 				delta = proxy.getChanges();
 			}
 
-			if (this.synthetic){
+			if (this.synthetic && this.synthetic.update){
 				return this.synthetic.update(from, delta, options, proxy)
+				.then(() => this.collection.promise())
 				.then(() => proxy);
 			}else{
-				if ( proxy && delta ){
+				if (proxy && delta){
 					return this.connector.update(from, delta, options)
-					.then( ( res ) => {
-						if ( options.hook ){
-							options.hook(res, from, delta);
-						}
+					.then(res => {
+						return this.collection.promise()
+						.then(() => {
+							if ( options.hook ){
+								options.hook(res, from, delta);
+							}
 
-						if ( !options.ignoreResponse && bmoor.isObject(res) ){
-							proxy.merge( res );
-						}else if ( !options.ignoreDelta ){
-							proxy.merge( delta );
-						}
+							if ( !options.ignoreResponse && bmoor.isObject(res) ){
+								proxy.merge( res );
+							}else if ( !options.ignoreDelta ){
+								proxy.merge( delta );
+							}
 
-						return proxy;
+							return proxy;
+						});
 					});
 				}else if ( proxy ){
 					return Promise.resolve( proxy );
@@ -566,17 +581,21 @@ class Table {
 
 				if (this.synthetic){
 					this.synthetic.delete(obj, datum, options, proxy)
+					.then(() => this.collection.promise())
 					.then(() => proxy);
 				}else{
 					return this.connector.delete( datum, datum, options )
-					.then( ( res ) => {
-						if ( options.hook ){
-							options.hook( res );
-						}
+					.then(res => {
+						return this.collection.promise()
+						.then(() => {
+							if ( options.hook ){
+								options.hook( res );
+							}
 
-						this.del( obj );
+							this.del( obj );
 
-						return proxy;
+							return proxy;
+						});
 					});
 				}
 			}else{
@@ -639,12 +658,12 @@ class Table {
 			if ( selection ){
 				selection.count++;
 
-				return rtn.then(function(){
-					return selection.filter;
-				});
+				return rtn.then(() => this.collection.promise())
+				.then(() => selection.filter);
 			}else{
 				selections[test.hash] = op = {
-					filter: rtn.then(() => {
+					filter: rtn.then(() => this.collection.promise())
+					.then(() => {
 						var res = this.collection.filter( test ),
 							disconnect = res.disconnect;
 

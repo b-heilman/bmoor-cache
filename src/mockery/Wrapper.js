@@ -10,6 +10,7 @@ function makeStub( table, old ){
 			return old.call( table, method );
 		}else{
 			return table.all().then( () => {
+				table.collection.next.flush();
 				return old.call( table, method );
 			});
 		}

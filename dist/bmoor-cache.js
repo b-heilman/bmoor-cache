@@ -105,8 +105,10 @@ module.exports = {
 "use strict";
 
 
+var schema = __webpack_require__(0).Memory.use('cache-table-schema');
+
 module.exports = {
-	default: __webpack_require__(0).Memory.use('cache-table-schema')
+	default: schema
 };
 
 /***/ }),
@@ -215,6 +217,8 @@ module.exports = __webpack_require__(0).Memory.use('cache-mockery-schema');
 
 var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
 
+var _get = function get(object, property, receiver) { if (object === null) object = Function.prototype; var desc = Object.getOwnPropertyDescriptor(object, property); if (desc === undefined) { var parent = Object.getPrototypeOf(object); if (parent === null) { return undefined; } else { return get(parent, property, receiver); } } else if ("value" in desc) { return desc.value; } else { var getter = desc.get; if (getter === undefined) { return undefined; } return getter.call(receiver); } };
+
 function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 function _possibleConstructorReturn(self, call) { if (!self) { throw new ReferenceError("this hasn't been initialised - super() hasn't been called"); } return call && (typeof call === "object" || typeof call === "function") ? call : self; }
@@ -232,49 +236,38 @@ var bmoor = __webpack_require__(0),
 var Feed = function (_Eventing) {
 	_inherits(Feed, _Eventing);
 
-	function Feed(src, settings) {
+	function Feed(src) {
+		var settings = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+
 		_classCallCheck(this, Feed);
 
 		var _this = _possibleConstructorReturn(this, (Feed.__proto__ || Object.getPrototypeOf(Feed)).call(this));
 
-		if (!src) {
-			src = [];
-			_this.settings = {};
-		} else if (Array.isArray(src)) {
-			_this.settings = settings || {};
+		_this.settings = settings;
+
+		// need to define next here because _track can call it
+		_this.next = bmoor.flow.window(function () {
+			_this.trigger('next', _this);
+		}, settings.windowMin || 0, settings.windowMax || 30);
+
+		if (src) {
 			src.push = src.unshift = _this.add.bind(_this);
 
 			src.forEach(function (datum) {
 				_this._track(datum);
 			});
-		} else {
-			_this.settings = src;
-			src = [];
 		}
 
 		setUid(_this);
 
 		_this.data = src;
-		_this.$dirty = false;
-
-		if (_this.settings.controller) {
-			_this.controller = new _this.settings.controller(_this);
-		}
-
-		_this.ready = bmoor.flow.window(function () {
-			if (_this.controller && _this.controller.ready) {
-				_this.controller.ready();
-			}
-
-			_this.trigger('update');
-		}, _this.settings.windowMin || 0, _this.settings.windowMax || 30);
 		return _this;
 	}
 
 	_createClass(Feed, [{
 		key: '_track',
-		value: function _track() {
-			this.$dirty = true;
+		value: function _track() /*datum*/{
+			// just a stub for now
 		}
 	}, {
 		key: '_add',
@@ -288,49 +281,147 @@ var Feed = function (_Eventing) {
 	}, {
 		key: 'add',
 		value: function add(datum) {
+			if (!this.data) {
+				this.data = [];
+			}
+
 			var added = this._add(datum);
 
-			this.trigger('insert', added);
-
-			this.ready();
+			this.next();
 
 			return added;
 		}
 	}, {
 		key: 'consume',
 		value: function consume(arr) {
-			var i, c;
-
-			for (i = 0, c = arr.length; i < c; i++) {
-				var d = arr[i],
-				    added = this._add(d);
-
-				this.trigger('insert', added);
+			if (!this.data) {
+				this.data = [];
 			}
 
-			this.ready();
+			for (var i = 0, c = arr.length; i < c; i++) {
+				this._add(arr[i]);
+			}
+
+			this.next();
+		}
+	}, {
+		key: 'empty',
+		value: function empty() {
+			if (this.data) {
+				this.data.length = 0;
+			}
+
+			this.next();
+		}
+	}, {
+		key: 'go',
+		value: function go(parent) {
+			this.empty();
+
+			this.consume(parent.data);
+		}
+	}, {
+		key: 'destroy',
+		value: function destroy() {
+			this.data = null;
+			this.disconnect();
+
+			this.trigger('complete');
+		}
+	}, {
+		key: 'subscribe',
+		value: function subscribe(onNext, onError, onComplete) {
+			var config = null;
+
+			if (bmoor.isFunction(onNext)) {
+				config = {
+					next: onNext,
+					error: onError || function () {
+						// anything for default?
+					},
+					complete: onComplete || function () {
+						// anything for default?
+					}
+				};
+			} else {
+				config = onNext;
+			}
+
+			if (this.data && config.next) {
+				// make it act like a hot observable
+				config.next(this);
+			}
+
+			return _get(Feed.prototype.__proto__ || Object.getPrototypeOf(Feed.prototype), 'subscribe', this).call(this, config);
+		}
+
+		// return back a promise that is active on the 'next'
+
+	}, {
+		key: 'promise',
+		value: function promise() {
+			var _this2 = this;
+
+			if (this.next.active() || !this.data) {
+				if (this._promise) {
+					return this._promise;
+				} else {
+					this._promise = new Promise(function (resolve, reject) {
+						var next = null;
+						var error = null;
+
+						next = _this2.once('next', function (collection) {
+							_this2._promise = null;
+
+							error();
+							resolve(collection);
+						});
+						error = _this2.once('error', function (ex) {
+							_this2._promise = null;
+
+							next();
+							reject(ex);
+						});
+					});
+				}
+
+				return this._promise;
+			} else {
+				return Promise.resolve(this);
+			}
 		}
 	}, {
 		key: 'follow',
 		value: function follow(parent, settings) {
-			var _this2 = this;
+			var _this3 = this;
 
-			parent.subscribe(Object.assign({
-				insert: function insert(datum) {
-					_this2.add(datum);
+			var disconnect = parent.subscribe(Object.assign({
+				next: function next(source) {
+					_this3.go(source);
 				},
-				remove: function remove(datum) {
-					_this2.remove(datum);
+				complete: function complete() {
+					_this3.destroy();
 				},
-				process: function process() {
-					if (_this2.go) {
-						_this2.go();
-					}
-				},
-				destroy: function destroy() {
-					_this2.destroy();
+				error: function error() {
+					// TODO : what to call?
 				}
 			}, settings));
+
+			if (this.disconnect) {
+				var old = this.disconnect;
+				this.disconnect = function () {
+					old();
+					disconnect();
+				};
+			} else {
+				this.disconnect = function () {
+					disconnect();
+
+					if (settings.disconnect) {
+						settings.disconnect();
+					}
+				};
+			}
 		}
 
 		// I want to remove this
@@ -340,17 +431,6 @@ var Feed = function (_Eventing) {
 		value: function sort(fn) {
 			console.warn('Feed::sort, will be removed soon');
 			this.data.sort(fn);
-		}
-	}, {
-		key: 'getData',
-		value: function getData() {
-			if (!this.$clone || this.$dirty) {
-				this.$dirty = false;
-
-				this.$clone = this.data.slice(0);
-			}
-
-			return this.$clone;
 		}
 	}]);
 
@@ -658,14 +738,8 @@ var Collection = function (_Feed) {
 	}, {
 		key: '_track',
 		value: function _track(datum) {
-			var _this2 = this;
-
 			if (datum.on) {
-				var fn = this.settings.follow ? this.settings.follow : function () {
-					return _this2.trigger('process');
-				};
-
-				datum.on[this.$$bmoorUid] = datum.on('update', fn);
+				datum.on[this.$$bmoorUid] = datum.on('update', this.next);
 			}
 		}
 	}, {
@@ -700,9 +774,7 @@ var Collection = function (_Feed) {
 			var rtn = this._remove(datum);
 
 			if (rtn) {
-				this.trigger('remove', rtn);
-
-				this.ready();
+				this.next();
 
 				return rtn;
 			}
@@ -710,77 +782,29 @@ var Collection = function (_Feed) {
 	}, {
 		key: 'empty',
 		value: function empty() {
-			var arr = this.data;
+			if (this.data) {
+				var arr = this.data;
 
-			while (arr.length) {
-				var d = arr[0];
-
-				this._remove(d);
-				this.trigger('remove', d);
-			}
-
-			this.ready();
-		}
-	}, {
-		key: 'follow',
-		value: function follow(parent, settings) {
-			var _this3 = this;
-
-			var disconnect = parent.subscribe(Object.assign({
-				insert: function insert(datum) {
-					_this3.add(datum);
-				},
-				remove: function remove(datum) {
-					_this3.remove(datum);
-				},
-				process: function process() {
-					_this3.go();
-				},
-				destroy: function destroy() {
-					_this3.destroy();
+				while (arr.length) {
+					this._remove(arr[0]);
 				}
-			}, settings));
-
-			if (this.disconnect) {
-				var old = this.disconnect;
-				this.disconnect = function () {
-					old();
-					disconnect();
-				};
-			} else {
-				this.disconnect = disconnect;
 			}
 
-			// if you just want to disconnect from this one
-			// you can later be specific
-			return disconnect;
+			this.next();
 		}
 	}, {
 		key: 'makeChild',
-		value: function makeChild(settings) {
-			var ChildClass = (settings ? settings.childClass : null) || this.constructor,
-			    child = new ChildClass(settings);
+		value: function makeChild(settings, goFn) {
+			var ChildClass = (settings ? settings.childClass : null) || this.constructor;
+			var child = new ChildClass(null, settings);
 
 			child.parent = this;
 
-			if (settings !== false) {
-				child.follow(this, settings);
-				var done = child.disconnect;
-
-				child.disconnect = function () {
-					if (settings.disconnect) {
-						settings.disconnect();
-					}
-
-					done();
-				};
-
-				child.destroy = function () {
-					child.disconnect();
-
-					child.trigger('destroy');
-				};
+			if (goFn) {
+				child.go = goFn;
 			}
+
+			child.follow(this, settings);
 
 			return child;
 		}
@@ -849,17 +873,25 @@ var Collection = function (_Feed) {
 				test = testStack(test, settings.tests[i]);
 			}
 
+			var hash = settings.hash || 'search:' + Date.now();
+
 			return this._filter(function (datum) {
 				if (!datum.$normalized) {
-					datum.$normalized = settings.normalizeDatum(datum);
+					datum.$normalized = {};
 				}
 
-				return test(datum.$normalized, ctx);
+				var cache = datum.$normalized[hash];
+				if (!cache) {
+					cache = settings.normalizeDatum(datum);
+					datum.$normalized[hash] = cache;
+				}
+
+				return test(cache, ctx);
 			}, Object.assign(settings, {
 				before: function before() {
 					ctx = settings.normalizeContext();
 				},
-				hash: 'search:' + Date.now()
+				hash: hash
 			}));
 		}
 
@@ -868,55 +900,10 @@ var Collection = function (_Feed) {
 	}, {
 		key: 'paginate',
 		value: function paginate(settings) {
-			var child,
-			    parent = this;
+			var child = null;
 
-			settings = Object.assign({}, {
-				insert: function insert(datum) {
-					child.add(datum);
-
-					child.go();
-				},
-				remove: function remove(datum) {
-					child.remove(datum);
-
-					child.go();
-				},
-				process: function process() {
-					child.go();
-				}
-			}, settings);
-
-			child = this.makeChild(settings);
-
+			var parent = this;
 			var origSize = settings.size;
-
-			child.go = bmoor.flow.window(function () {
-				var span = settings.size,
-				    length = parent.data.length,
-				    steps = Math.ceil(length / span);
-
-				this.nav.span = span;
-				this.nav.steps = steps;
-				this.nav.count = length;
-
-				var start = this.nav.pos * span,
-				    stop = start + span;
-
-				this.nav.start = start;
-				if (stop > length) {
-					stop = length;
-				}
-				this.nav.stop = stop;
-
-				this.empty();
-
-				for (var i = start; i < stop; i++) {
-					this.add(this.parent.data[i]);
-				}
-
-				child.trigger('process');
-			}, settings.min || 5, settings.max || 30, { context: child });
 
 			var nav = {
 				pos: settings.start || 0,
@@ -965,8 +952,34 @@ var Collection = function (_Feed) {
 				}
 			};
 
+			child = this.makeChild(settings, function () {
+				var span = settings.size,
+				    length = parent.data.length,
+				    steps = Math.ceil(length / span);
+
+				nav.span = span;
+				nav.steps = steps;
+				nav.count = length;
+
+				var start = nav.pos * span;
+				var stop = start + span;
+
+				nav.start = start;
+				if (stop > length) {
+					stop = length;
+				}
+				nav.stop = stop;
+
+				this.empty();
+
+				for (var i = start; i < stop; i++) {
+					this.add(this.parent.data[i]);
+				}
+
+				this.next();
+			});
+
 			child.nav = nav;
-			child.go.flush();
 
 			return child;
 		}
@@ -1698,14 +1711,17 @@ function childFn(key, child, target, type, link) {
 					return;
 				}
 
-				// TODO: make this insert?
-				return child.set(value).then(function (res) {
-					// back reference
-					bmoor.set(res, '$links.' + target, // mount on $links property
-					ctrl);
+				if (value === undefined) {
+					return Promise.resolve(null);
+				} else {
+					return child.set(value).then(function (res) {
+						// back reference
+						bmoor.set(res, '$links.' + target, // mount on $links property
+						ctrl);
 
-					return res;
-				});
+						return res;
+					});
+				}
 			};
 
 			var remove = function remove(value) {
@@ -1746,7 +1762,10 @@ function childFn(key, child, target, type, link) {
 					var res = remove(datum);
 
 					if (res) {
-						collection.remove(res);
+						// TODO : bug in lower code
+						if (collection.data) {
+							collection.remove(res);
+						}
 					}
 				}, false);
 
@@ -1795,6 +1814,10 @@ var Linker = function () {
 				if (relationship === 'child') {
 					var parent = Schema.get(link.table);
 
+					if (!parent.linker) {
+						parent.linker = new Linker(link.table, []);
+					}
+
 					parent.linker.setChild(link.key, _this.table, link.target, type, link);
 				} else {
 					_this.setLink(link.key, Schema.get(link.table), link.target, type, link);
@@ -1817,6 +1840,11 @@ var Linker = function () {
 
 			this.onAdd = stack(this.onAdd, methods.add);
 		}
+
+		/**
+  * If the object has a setLinker, allow delay.  Otherwise add links
+  */
+
 	}, {
 		key: 'add',
 		value: function add(obj) {
@@ -1964,6 +1992,7 @@ function makeStub(table, old) {
 			return old.call(table, method);
 		} else {
 			return table.all().then(function () {
+				table.collection.next.flush();
 				return old.call(table, method);
 			});
 		}
@@ -2091,12 +2120,8 @@ var Table = function () {
 
 		this.name = name;
 
-		if (ops.synthetic) {
-			// TODO : I might move synthetic to its own table like class
-			this.synthetic = ops.synthetic;
-		} else {
-			this.connector = ops.connector;
-		}
+		this.synthetic = ops.synthetic;
+		this.connector = ops.connector;
 
 		if (ops.proxy && !ops.proxyFactory) {
 			console.warn('ops.proxy will be deprecated in next major version');
@@ -2113,7 +2138,9 @@ var Table = function () {
 			throw new Error('bmoor-comm::Table requires a id field of function');
 		}
 
-		this.linker = new Linker(this, ops.links);
+		if (ops.links) {
+			this.linker = new Linker(this, ops.links);
+		}
 
 		this.before = ops.before || function () {
 			return Promise.resolve(true);
@@ -2136,7 +2163,7 @@ var Table = function () {
 
 				if (qry instanceof DataProxy) {
 					return qry.getDatum();
-				} else if (bmoor.isObject(qry)) {
+				} else if (bmoor.isObject(qry) && !bmoor.isArray(qry)) {
 					return qry;
 				} else {
 					t = {};
@@ -2175,7 +2202,7 @@ var Table = function () {
 	_createClass(Table, [{
 		key: 'reset',
 		value: function reset() {
-			this.collection = this.collectionFactory();
+			this.collection = this.collectionFactory([]);
 			this.index = this.collection.index(this.$id);
 			this._selections = {};
 			this._getting = {};
@@ -2195,6 +2222,8 @@ var Table = function () {
 	}, {
 		key: 'set',
 		value: function set(obj, delta) {
+			var _this2 = this;
+
 			var id = this.$id(obj),
 			    t = this.index.get(id);
 
@@ -2213,11 +2242,13 @@ var Table = function () {
 
 				this._getting[id] = null;
 
-				if (this.linker) {
-					return this.linker.add(t);
-				} else {
-					return Promise.resolve(t);
-				}
+				return this.collection.promise().then(function () {
+					if (_this2.linker) {
+						return _this2.linker.add(t);
+					} else {
+						return t;
+					}
+				});
 			} else {
 				throw new Error('missing id for object: ' + JSON.stringify(obj));
 			}
@@ -2225,10 +2256,10 @@ var Table = function () {
 	}, {
 		key: 'consume',
 		value: function consume(arr) {
-			var _this2 = this;
+			var _this3 = this;
 
 			return Promise.all(arr.map(function (d) {
-				return _this2.set(d);
+				return _this3.set(d);
 			}));
 		}
 	}, {
@@ -2246,7 +2277,7 @@ var Table = function () {
 	}, {
 		key: 'get',
 		value: function get(obj, options) {
-			var _this3 = this;
+			var _this4 = this;
 
 			var id = this.$id(obj);
 
@@ -2260,43 +2291,45 @@ var Table = function () {
 			// allow for the default to be batching
 			var batch = 'batch' in options ? options.batch : 'batch' in defaultSettings ? defaultSettings.batch : null;
 
-			if (this.synthetic) {
+			if (this.synthetic && this.synthetic.get) {
 				fetch = function fetch(datum) {
-					return _this3.synthetic.get(datum).then(function () {
-						return _this3.find(obj);
+					return _this4.synthetic.get(datum).then(function () {
+						return _this4.collection.promise();
+					}).then(function () {
+						return _this4.find(obj);
 					});
 				};
 			} else if (batch || batch === 0) {
 				fetch = function fetch(datum) {
-					return _this3.getMany([datum]).then(function () {
-						return _this3.find(datum);
+					return _this4.getMany([datum]).then(function () {
+						return _this4.find(datum);
 					});
 				};
 			} else {
 				fetch = function fetch(datum) {
 
-					var rtn = _this3.connector.read(_this3.$encode(datum), null, options).then(function (res) {
+					var rtn = _this4.connector.read(_this4.$encode(datum), null, options).then(function (res) {
 						if (options.hook) {
 							options.hook(res);
 						}
 
-						return _this3.set(res);
+						return _this4.set(res);
 					});
 
-					_this3._getting[id] = rtn;
+					_this4._getting[id] = rtn;
 
 					return rtn;
 				};
 			}
 
 			return this.before('get').then(function () {
-				var t = _this3.find(id);
+				var t = _this4.find(id);
 
 				if (!t || options && options.cached === false) {
 					// this needs to be an active promise
-					if (_this3._getting[id]) {
-						return _this3._getting[id].then(function () {
-							return _this3.find(id);
+					if (_this4._getting[id]) {
+						return _this4._getting[id].then(function () {
+							return _this4.find(id);
 						});
 					} else {
 						return fetch(obj);
@@ -2323,7 +2356,7 @@ var Table = function () {
 	}, {
 		key: 'setMany',
 		value: function setMany(prom, hook) {
-			var _this4 = this;
+			var _this5 = this;
 
 			if (!prom.then) {
 				prom = Promise.resolve(prom);
@@ -2335,7 +2368,7 @@ var Table = function () {
 				}
 
 				return Promise.all(res.map(function (r) {
-					return _this4.set(r);
+					return _this5.set(r);
 				}));
 			});
 		}
@@ -2347,7 +2380,7 @@ var Table = function () {
 	}, {
 		key: 'fetch',
 		value: function fetch(qry, options) {
-			var _this5 = this;
+			var _this6 = this;
 
 			if (!options) {
 				options = {};
@@ -2356,15 +2389,19 @@ var Table = function () {
 			return this.before('fetch', qry).then(function () {
 				var rtn;
 
-				if (_this5.synthetic) {
+				if (_this6.synthetic && _this6.synthetic.fetch) {
 					// NOTE : I don't love this...
-					rtn = _this5.synthetic.fetch(qry, options);
+					rtn = _this6.synthetic.fetch(qry, options).then(function (res) {
+						return _this6.collection.promise().then(function () {
+							return res;
+						});
+					});
 				} else {
-					rtn = _this5.connector.query(qry, null, options);
+					rtn = _this6.connector.query(qry, null, options);
 				}
 
-				return _this5.setMany(rtn, options.hook).then(function (res) {
-					var collection = _this5.collectionFactory();
+				return _this6.setMany(rtn, options.hook).then(function (res) {
+					var collection = _this6.collectionFactory([]);
 
 					res.forEach(function (p, i) {
 						collection.data[i] = p;
@@ -2380,7 +2417,7 @@ var Table = function () {
 	}, {
 		key: 'getMany',
 		value: function getMany(arr, options) {
-			var _this6 = this;
+			var _this7 = this;
 
 			if (!options) {
 				options = {};
@@ -2392,20 +2429,22 @@ var Table = function () {
 
 				// reduce the list using gotten
 				arr.forEach(function (r) {
-					var t = _this6.$id(r);
+					var t = _this7.$id(r);
 
 					all.push(t);
 
-					if (!_this6.index.get(t)) {
+					if (!_this7.index.get(t)) {
 						req.push(t);
 					}
 				});
 
-				return _this6._getMany(req, all, options).then(function () {
-					var collection = _this6.collectionFactory();
+				return _this7._getMany(req, options).then(function () {
+					return _this7.collection.promise();
+				}).then(function () {
+					var collection = _this7.collectionFactory([]);
 
 					all.forEach(function (id, i) {
-						collection.data[i] = _this6.index.get(id);
+						collection.data[i] = _this7.index.get(id);
 					});
 
 					return collection;
@@ -2420,7 +2459,7 @@ var Table = function () {
 	}, {
 		key: '_getMany',
 		value: function _getMany(arr, options) {
-			var _this7 = this;
+			var _this8 = this;
 
 			var loading = [];
 
@@ -2431,32 +2470,36 @@ var Table = function () {
 
 				this.$getMany = this.setMany(new Promise(function (resolve, reject) {
 					setTimeout(function () {
-						var thread = _this7.$getMany;
+						var thread = _this8.$getMany;
 
-						_this7.$getMany = null;
+						_this8.$getMany = null;
 
 						var prom = null;
 						var req = [];
 
-						for (var id in _this7._getting) {
-							var t = _this7._getting[id];
-
-							if (t === thread) {
-								req.push(_this7.$encode(id));
+						for (var id in _this8._getting) {
+							if (_this8._getting[id] === thread) {
+								req.push(id);
 							}
 						}
 
 						if (req.length) {
 							// this works because I can assume id was defined for 
 							// the feed
-							if (_this7.synthetic && _this7.synthetic.getMany) {
-								prom = _this7.synthetic.getMany(req, options);
-							} else if (_this7.connector.readMany) {
-								prom = _this7.connector.readMany(req, null, options);
+							var query = _this8.$encode(req);
+
+							if (_this8.synthetic && _this8.synthetic.getMany) {
+								prom = _this8.synthetic.getMany(query, options).then(function (res) {
+									return _this8.collection.promise().then(function () {
+										return res;
+									});
+								});
+							} else if (_this8.connector.readMany) {
+								prom = _this8.connector.readMany(query, null, options);
 							} else {
 								// The feed doesn't have readMany, so many reads will work
 								prom = Promise.all(req.map(function (id) {
-									return _this7.connector.read(id, null, options);
+									return _this8.connector.read(id, null, options);
 								}));
 							}
 						} else {
@@ -2473,11 +2516,11 @@ var Table = function () {
 			loading.push(rtn);
 
 			arr.forEach(function (id) {
-				if (id in _this7._getting) {
+				if (id in _this8._getting) {
 					// assumed to be either null or a promise
-					loading.push(_this7._getting[id]);
+					loading.push(_this8._getting[id]);
 				} else {
-					_this7._getting[id] = rtn;
+					_this8._getting[id] = rtn;
 				}
 			});
 
@@ -2491,38 +2534,38 @@ var Table = function () {
 	}, {
 		key: 'all',
 		value: function all(obj, options) {
-			var _this8 = this;
+			var _this9 = this;
 
 			if (!options) {
 				options = {};
 			}
 
 			return this.before('all').then(function () {
-				if (!_this8.$all || options.cached === false) {
+				if (!_this9.$all || options.cached === false) {
 					var res = void 0;
 
-					if (_this8.synthetic) {
-						if (_this8.synthetic.all) {
-							res = _this8.synthetic.all(obj, options);
+					if (_this9.synthetic) {
+						if (_this9.synthetic.all) {
+							res = _this9.synthetic.all(obj, options);
 						} else {
 							res = Promise.resolve([]);
 						}
 					} else {
-						res = _this8.connector.all(obj, null, options);
+						res = _this9.connector.all(obj, null, options);
 					}
 
-					_this8.$all = res.then(function (res) {
+					_this9.$all = res.then(function (res) {
 						if (options.hook) {
 							options.hook(res);
 						}
 
-						_this8.consume(res);
+						_this9.consume(res);
 
-						return _this8.collection;
+						return _this9.collection.promise();
 					});
 				}
 
-				return _this8.$all;
+				return _this9.$all;
 			});
 		}
 
@@ -2531,29 +2574,31 @@ var Table = function () {
 	}, {
 		key: 'insert',
 		value: function insert(obj, options) {
-			var _this9 = this;
+			var _this10 = this;
 
 			if (!options) {
 				options = {};
 			}
 
 			return this.before('insert', obj).then(function () {
-				var t = _this9.find(obj);
+				var t = _this10.find(obj);
 
-				if (_this9.synthetic) {
+				if (_this10.synthetic && _this10.synthetic.insert) {
 					// if it exists, don't do anything
 					if (t) {
 						return Promise.resolve(t);
 					} else {
-						return _this9.synthetic.insert(obj, options).then(function () {
-							return _this9.find(obj);
+						return _this10.synthetic.insert(obj, options).then(function () {
+							return _this10.collection.promise();
+						}).then(function () {
+							return _this10.find(obj);
 						});
 					}
 				} else {
 					if (t) {
 						throw new Error('This already exists ' + JSON.stringify(obj));
 					} else {
-						return _this9.connector.create(obj, obj, options).then(function (res) {
+						return _this10.connector.create(obj, obj, options).then(function (res) {
 							if (options.hook) {
 								options.hook(res);
 							}
@@ -2572,12 +2617,14 @@ var Table = function () {
 
 							return datum;
 						}).then(function (datum) {
-							return _this9.set(datum).then(function (proxy) {
-								if (options.useProto) {
-									proxy.merge(obj);
-								}
+							return _this10.set(datum).then(function (proxy) {
+								return _this10.collection.promise().then(function () {
+									if (options.useProto) {
+										proxy.merge(obj);
+									}
 
-								return proxy;
+									return proxy;
+								});
 							});
 						});
 					}
@@ -2591,7 +2638,7 @@ var Table = function () {
 	}, {
 		key: 'update',
 		value: function update(from, delta, options) {
-			var _this10 = this;
+			var _this11 = this;
 
 			if (!options) {
 				options = {};
@@ -2604,8 +2651,8 @@ var Table = function () {
 					proxy = from;
 					from = from.getDatum();
 				} else {
-					from = _this10.$encode(from);
-					proxy = _this10.find(from);
+					from = _this11.$encode(from);
+					proxy = _this11.find(from);
 				}
 
 				if (delta === true) {
@@ -2614,24 +2661,28 @@ var Table = function () {
 					delta = proxy.getChanges();
 				}
 
-				if (_this10.synthetic) {
-					return _this10.synthetic.update(from, delta, options, proxy).then(function () {
+				if (_this11.synthetic && _this11.synthetic.update) {
+					return _this11.synthetic.update(from, delta, options, proxy).then(function () {
+						return _this11.collection.promise();
+					}).then(function () {
 						return proxy;
 					});
 				} else {
 					if (proxy && delta) {
-						return _this10.connector.update(from, delta, options).then(function (res) {
-							if (options.hook) {
-								options.hook(res, from, delta);
-							}
+						return _this11.connector.update(from, delta, options).then(function (res) {
+							return _this11.collection.promise().then(function () {
+								if (options.hook) {
+									options.hook(res, from, delta);
+								}
 
-							if (!options.ignoreResponse && bmoor.isObject(res)) {
-								proxy.merge(res);
-							} else if (!options.ignoreDelta) {
-								proxy.merge(delta);
-							}
+								if (!options.ignoreResponse && bmoor.isObject(res)) {
+									proxy.merge(res);
+								} else if (!options.ignoreDelta) {
+									proxy.merge(delta);
+								}
 
-							return proxy;
+								return proxy;
+							});
 						});
 					} else if (proxy) {
 						return Promise.resolve(proxy);
@@ -2647,31 +2698,35 @@ var Table = function () {
 	}, {
 		key: 'delete',
 		value: function _delete(obj, options) {
-			var _this11 = this;
+			var _this12 = this;
 
 			if (!options) {
 				options = {};
 			}
 
 			return this.before('delete', obj).then(function () {
-				var proxy = _this11.find(obj);
+				var proxy = _this12.find(obj);
 
 				if (proxy) {
 					var datum = proxy.getDatum();
 
-					if (_this11.synthetic) {
-						_this11.synthetic.delete(obj, datum, options, proxy).then(function () {
+					if (_this12.synthetic) {
+						_this12.synthetic.delete(obj, datum, options, proxy).then(function () {
+							return _this12.collection.promise();
+						}).then(function () {
 							return proxy;
 						});
 					} else {
-						return _this11.connector.delete(datum, datum, options).then(function (res) {
-							if (options.hook) {
-								options.hook(res);
-							}
+						return _this12.connector.delete(datum, datum, options).then(function (res) {
+							return _this12.collection.promise().then(function () {
+								if (options.hook) {
+									options.hook(res);
+								}
 
-							_this11.del(obj);
+								_this12.del(obj);
 
-							return proxy;
+								return proxy;
+							});
 						});
 					}
 				} else {
@@ -2685,24 +2740,24 @@ var Table = function () {
 	}, {
 		key: 'select',
 		value: function select(qry, options) {
-			var _this12 = this;
+			var _this13 = this;
 
 			return this.before('select', qry).then(function () {
 				var op,
 				    rtn,
 				    test,
 				    selection,
-				    selections = _this12._selections;
+				    selections = _this13._selections;
 
 				if (!options) {
 					options = {};
 				}
 
-				_this12.normalize(qry);
+				_this13.normalize(qry);
 
 				test = options instanceof Test ? options : options.test || new Test(options.fn || qry, {
 					hash: options.hash,
-					massage: options.massage || _this12.$datum
+					massage: options.massage || _this13.$datum
 				});
 				selection = selections[test.hash];
 
@@ -2712,8 +2767,8 @@ var Table = function () {
 					return selection.filter;
 				}
 
-				if (_this12.connector.search) {
-					rtn = _this12.connector.search(qry, // variables
+				if (_this13.connector.search) {
+					rtn = _this13.connector.search(qry, // variables
 					null, // no datum to send
 					options // allow more fine tuned management
 					).then(function (res) {
@@ -2721,22 +2776,26 @@ var Table = function () {
 							options.hook(res);
 						}
 
-						_this12.consume(res);
+						_this13.consume(res);
 					});
 				} else {
-					rtn = _this12.all(qry, options);
+					rtn = _this13.all(qry, options);
 				}
 
 				if (selection) {
 					selection.count++;
 
 					return rtn.then(function () {
+						return _this13.collection.promise();
+					}).then(function () {
 						return selection.filter;
 					});
 				} else {
 					selections[test.hash] = op = {
 						filter: rtn.then(function () {
-							var res = _this12.collection.filter(test),
+							return _this13.collection.promise();
+						}).then(function () {
+							var res = _this13.collection.filter(test),
 							    disconnect = res.disconnect;
 
 							res.disconnect = function () {
@@ -3463,13 +3522,17 @@ var bmoor = __webpack_require__(0),
 
 module.exports = {
 	fn: function route(dex, parent) {
-		var old = {},
-		    index = {},
-		    _get = function _get(key) {
+		var old = null;
+		var index = {};
+
+		var _get = function _get(key) {
 			var collection = index[key];
 
 			if (!collection) {
-				collection = parent.makeChild(false);
+				collection = parent.makeChild({}, function () {
+					// I don't want the children to do anything
+					// the parent will copy data down
+				});
 				index[key] = collection;
 			}
 
@@ -3484,7 +3547,7 @@ module.exports = {
 			_get(d).add(datum);
 		}
 
-		function _remove(datum) {
+		function remove(datum) {
 			var dex = setUid(datum);
 
 			if (dex in old) {
@@ -3492,17 +3555,24 @@ module.exports = {
 			}
 		}
 
-		for (var i = 0, c = parent.data.length; i < c; i++) {
-			add(parent.data[i]);
+		function makeRouter() {
+			old = {};
+
+			for (var k in index) {
+				index[k].empty();
+			}
+
+			if (parent.data) {
+				for (var i = 0, c = parent.data.length; i < c; i++) {
+					add(parent.data[i]);
+				}
+			}
 		}
 
+		makeRouter();
+
 		var _disconnect = parent.subscribe({
-			insert: function insert(datum) {
-				add(datum);
-			},
-			remove: function remove(datum) {
-				_remove(datum);
-			}
+			next: makeRouter
 		});
 
 		return {
@@ -3510,7 +3580,7 @@ module.exports = {
 				return _get(dex.parse(search));
 			},
 			reroute: function reroute(datum) {
-				_remove(datum);
+				remove(datum);
 				add(datum);
 			},
 			keys: function keys() {
@@ -3531,25 +3601,26 @@ module.exports = {
 
 
 module.exports = {
-	fn: function index(dex, parent) {
-		var index = {};
+	fn: function indexer(dex, parent) {
+		var index = null;
 
-		for (var i = 0, c = parent.data.length; i < c; i++) {
-			var datum = parent.data[i],
-			    key = dex.go(datum);
+		function makeIndex() {
+			index = {};
 
-			index[key] = datum;
+			if (parent.data) {
+				for (var i = 0, c = parent.data.length; i < c; i++) {
+					var datum = parent.data[i],
+					    key = dex.go(datum);
+
+					index[key] = datum;
+				}
+			}
 		}
 
+		makeIndex();
+
 		var _disconnect = parent.subscribe({
-			insert: function insert(datum) {
-				var key = dex.go(datum);
-				index[key] = datum;
-			},
-			remove: function remove(datum) {
-				var key = dex.go(datum);
-				delete index[key];
-			}
+			next: makeIndex
 		});
 
 		return {
@@ -3574,47 +3645,31 @@ module.exports = {
 "use strict";
 
 
-var bmoor = __webpack_require__(0);
-
 module.exports = {
 	fn: function fn(dex, parent, settings) {
-		var child;
+		return parent.makeChild(settings, function () {
+			var _this = this;
 
-		settings = Object.assign({
-			follow: function follow() {
-				// TODO: does go actually need to be called?
-				child.go();
-			},
-			insert: function insert(datum) {
-				if (dex.go(datum)) {
-					child.add(datum);
+			this.empty();
+
+			if (parent.data) {
+				if (settings.before) {
+					settings.before();
+				}
+
+				parent.data.forEach(function (datum) {
+					if (dex.go(datum)) {
+						_this.add(datum);
+					}
+				});
+
+				if (settings.after) {
+					settings.after();
 				}
 			}
-		}, settings);
 
-		child = parent.makeChild(settings);
-
-		child.go = bmoor.flow.window(function () {
-			var arr = parent.data;
-
-			child.empty();
-
-			if (settings.before) {
-				settings.before();
-			}
-
-			arr.forEach(settings.insert);
-
-			if (settings.after) {
-				settings.after();
-			}
-
-			child.trigger('process');
-		}, settings.min || 5, settings.max || 30);
-
-		child.go.flush();
-
-		return child;
+			this.next();
+		});
 	}
 };
 
@@ -3625,49 +3680,24 @@ module.exports = {
 "use strict";
 
 
-var bmoor = __webpack_require__(0);
-
 module.exports = {
 	fn: function fn(dex, parent, settings) {
-		var child;
+		return parent.makeChild(settings, function () {
+			this.empty();
 
-		settings = Object.assign({
-			follow: function follow() {
-				// TODO: does go actually need to be called?
-				child.go();
-			},
-			insert: function insert(datum) {
-				child.add(datum);
-				child.go();
-			},
-			update: function update() {
-				child.go();
+			if (parent.data) {
+				if (settings.before) {
+					settings.before();
+				}
+
+				this.consume(parent.data);
+				this.data.sort(dex.go);
+
+				if (settings.after) {
+					settings.after();
+				}
 			}
-		}, settings);
-
-		child = parent.makeChild(settings);
-
-		for (var i = 0, c = parent.data.length; i < c; i++) {
-			child.add(parent.data[i]);
-		}
-
-		child.go = bmoor.flow.window(function () {
-			if (settings.before) {
-				settings.before();
-			}
-
-			child.data.sort(dex.go);
-
-			if (settings.after) {
-				settings.after();
-			}
-
-			child.trigger('process');
-		}, settings.min || 5, settings.max || 30);
-
-		child.go.flush();
-
-		return child;
+		});
 	}
 };
 
@@ -3678,25 +3708,12 @@ module.exports = {
 "use strict";
 
 
-var bmoor = __webpack_require__(0);
-
 module.exports = {
 	fn: function fn(dex, parent, settings) {
-		var child;
+		var child = parent.makeChild(settings);
 
-		settings = Object.assign({}, {
-			insert: function insert(datum) {
-				// I only need to 
-				child.add(dex.go(datum));
-			}
-			// remove should use a look-aside
-		}, settings);
-
-		child = parent.makeChild(settings);
-
-		child.go = bmoor.flow.window(function () {
-			var datum,
-			    arr = parent.data;
+		child.go = function () {
+			var arr = parent.data;
 
 			child.empty();
 
@@ -3705,7 +3722,7 @@ module.exports = {
 			}
 
 			for (var i = 0, c = arr.length; i < c; i++) {
-				datum = arr[i];
+				var datum = arr[i];
 
 				child.add(dex.go(datum));
 			}
@@ -3713,11 +3730,9 @@ module.exports = {
 			if (settings.after) {
 				settings.after();
 			}
+		};
 
-			child.trigger('process');
-		}, settings.min || 5, settings.max || 30);
-
-		child.go.flush();
+		child.go();
 
 		return child;
 	}
@@ -3839,9 +3854,11 @@ var Proxied = function (_DataCollection) {
 
 		var _this = _possibleConstructorReturn(this, (Proxied.__proto__ || Object.getPrototypeOf(Proxied)).call(this, src, settings));
 
-		_this.data.forEach(function (datum, i) {
-			_this.data[i] = _this._wrap(datum);
-		});
+		if (src) {
+			_this.data.forEach(function (datum, i) {
+				_this.data[i] = _this._wrap(datum);
+			});
+		}
 		return _this;
 	}
 

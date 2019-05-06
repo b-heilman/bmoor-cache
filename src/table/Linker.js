@@ -195,18 +195,21 @@ function childFn(key, child, target, type, link){
 					return;
 				}
 
-				// TODO: make this insert?
-				return child.set(value)
-				.then( res => {
-					// back reference
-					bmoor.set(
-						res,
-						'$links.'+target, // mount on $links property
-						ctrl
-					);
+				if (value === undefined){
+					return Promise.resolve(null);
+				} else {
+					return child.set(value)
+					.then( res => {
+						// back reference
+						bmoor.set(
+							res,
+							'$links.'+target, // mount on $links property
+							ctrl
+						);
 
-					return res;
-				});
+						return res;
+					});
+				}
 			};
 
 			let remove = value => {
@@ -256,7 +259,10 @@ function childFn(key, child, target, type, link){
 						var res = remove(datum);
 						
 						if ( res ){
-							collection.remove(res);
+							// TODO : bug in lower code
+							if (collection.data){
+								collection.remove(res);
+							}
 						}
 					},
 					false
@@ -302,6 +308,10 @@ class Linker {
 				if (relationship === 'child'){
 					let parent = Schema.get(link.table);
 
+					if (!parent.linker){
+						parent.linker = new Linker(link.table, []);
+					}
+
 					parent.linker.setChild(
 						link.key,
 						this.table,
@@ -334,6 +344,9 @@ class Linker {
 		this.onAdd = stack(this.onAdd, methods.add);
 	}
 
+	/**
+	* If the object has a setLinker, allow delay.  Otherwise add links
+	*/
 	add(obj){
 		if (obj.setLinker){
 			obj.setLinker(this);

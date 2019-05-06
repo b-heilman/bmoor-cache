@@ -1,4 +1,6 @@
 
+const schema = require('bmoor').Memory.use('cache-table-schema');
+
 module.exports = {
-	default: require('bmoor').Memory.use('cache-table-schema')
+	default: schema
 };

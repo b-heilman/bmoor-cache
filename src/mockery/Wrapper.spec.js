@@ -69,10 +69,7 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 			expect( res.data[0].getDatum().foo ).toBe( 'bar' );
 
 			done();
-		}).catch(function( ex ){
-			console.log( ex.message );
-			console.log( ex.stack );
-		});
+		}).catch(done);
 	});
 
 	it('should properly overload get request', function( done ){
@@ -82,10 +79,7 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 			expect( res.getDatum().foo ).toBe( 'bar3' );
 
 			done();
-		}).catch(function( ex ){
-			console.log( ex.message );
-			console.log( ex );
-		});
+		}).catch(done);
 	});
 
 	it('should properly overload get-many request', function( done ){
@@ -96,10 +90,7 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 			expect( res.data[1].getDatum().foo ).toBe( 'bar2' );
 
 			done();
-		}).catch(function( ex ){
-			console.log( ex.message );
-			console.log( ex.stack );
-		});
+		}).catch(done);
 	});
 
 	it('should properly overload insert request', function( done ){
@@ -113,15 +104,14 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 			expect( res.getDatum().id ).toBe( 20 );
 			expect( res.getDatum().foo ).toBe( 'bar20' );
 
+			table.collection.next.flush();
+
 			table.get( 20 ).then(function( res ){
 				expect( res.getDatum().foo ).toBe( 'bar20' );
 
 				done();
 			});
-		}).catch(function( ex ){
-			console.log( ex.message );
-			console.log( ex.stack );
-		});
+		}).catch(done);
 	});
 
 	it('should properly overload update request', function( done ){
@@ -136,6 +126,7 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 			expect( delta.hello ).toBe('world');
 		};
 
+		// {id:2} is defined by all called via before hook in table
 		table.update({id:2}, {'hello':'world'}, {
 			hook: function( res ){
 				called = true;
@@ -148,16 +139,14 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 			return table.get( {id:2} ).then(function( gotten ){
 				var datum = gotten.getDatum();
 				
-				expect( datum.id ).toBe( 2 );
-				expect( datum.foo ).toBe( 'bar2' );
-				expect( datum.hello ).toBe( 'world' );
+				expect(datum.id).toBe(2);
+				expect(datum.foo).toBe('bar2');
+				expect(datum.hello).toBe('world');
+				expect(called).toBe(true);
 
 				done();
 			});
-		}).catch(function( ex ){
-			console.log( ex.message );
-			console.log( ex.stack );
-		});
+		}).catch(done);
 	});
 
 	it('should properly overload delete request', function( done ){
@@ -171,6 +160,7 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 		let was,
 			called = false;
 
+		// {id:1} is defined by all called via before hook in table
 		table.delete( {id:1}, {
 			hook: function( res ){
 				called = true;
@@ -188,9 +178,6 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 
 				done();
 			});
-		}).catch(function( ex ){
-			console.log( ex.message );
-			console.log( ex.stack );
-		});
+		}).catch(done);
 	});
 });
