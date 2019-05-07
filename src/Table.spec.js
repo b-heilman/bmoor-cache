@@ -87,9 +87,7 @@ describe('bmoor-cache::Table', function(){
 				expect( d.data[0].getDatum().id ).toBe( 1 );
 				expect( d.data[1].getDatum().id ).toBe( 2 );
 
-				table.collection.next.flush();
-
-				table.getMany([1,2])
+				return table.getMany([1,2])
 				.then(function( d ){
 					expect( d.data.length ).toBe( 2 );
 					done();
@@ -1010,11 +1008,13 @@ describe('bmoor-cache::Table', function(){
 				}
 			]);
 
-			table.all().then(function( res ){
-				var t = res.sorted( (a,b) => {
+			table.all()
+			.then(function( res ){
+				var t = res.sorted((a,b) => {
 					return b.id - a.id;
 				}).filter({other:true});
 
+				expect( res.data.length ).toBe( 5 );
 				expect( t.data.length ).toBe( 3 );
 				expect( t instanceof CacheCollection ).toBe( true );
 			

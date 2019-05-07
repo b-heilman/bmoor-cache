@@ -256,11 +256,14 @@ var Feed = function (_Eventing) {
 			src.forEach(function (datum) {
 				_this._track(datum);
 			});
+		} else {
+			src = [];
 		}
 
 		setUid(_this);
 
 		_this.data = src;
+		_this.cold = !src.length;
 		return _this;
 	}
 
@@ -281,8 +284,8 @@ var Feed = function (_Eventing) {
 	}, {
 		key: 'add',
 		value: function add(datum) {
-			if (!this.data) {
-				this.data = [];
+			if (this.cold) {
+				this.cold = false;
 			}
 
 			var added = this._add(datum);
@@ -294,8 +297,8 @@ var Feed = function (_Eventing) {
 	}, {
 		key: 'consume',
 		value: function consume(arr) {
-			if (!this.data) {
-				this.data = [];
+			if (this.cold) {
+				this.cold = false;
 			}
 
 			for (var i = 0, c = arr.length; i < c; i++) {
@@ -307,9 +310,7 @@ var Feed = function (_Eventing) {
 	}, {
 		key: 'empty',
 		value: function empty() {
-			if (this.data) {
-				this.data.length = 0;
-			}
+			this.data.length = 0;
 
 			this.next();
 		}
@@ -323,6 +324,7 @@ var Feed = function (_Eventing) {
 	}, {
 		key: 'destroy',
 		value: function destroy() {
+			this.cold = true;
 			this.data = null;
 			this.disconnect();
 
@@ -347,7 +349,7 @@ var Feed = function (_Eventing) {
 				config = onNext;
 			}
 
-			if (this.data && config.next) {
+			if (!this.cold && config.next) {
 				// make it act like a hot observable
 				config.next(this);
 			}
@@ -362,7 +364,7 @@ var Feed = function (_Eventing) {
 		value: function promise() {
 			var _this2 = this;
 
-			if (this.next.active() || !this.data) {
+			if (this.next.active() || this.cold) {
 				if (this._promise) {
 					return this._promise;
 				} else {
@@ -782,12 +784,10 @@ var Collection = function (_Feed) {
 	}, {
 		key: 'empty',
 		value: function empty() {
-			if (this.data) {
-				var arr = this.data;
+			var arr = this.data;
 
-				while (arr.length) {
-					this._remove(arr[0]);
-				}
+			while (arr.length) {
+				this._remove(arr[0]);
 			}
 
 			this.next();
@@ -2299,7 +2299,7 @@ var Table = function () {
 						return _this4.find(obj);
 					});
 				};
-			} else if (batch || batch === 0) {
+			} else if ((batch || batch === 0) && this.connector.readMany) {
 				fetch = function fetch(datum) {
 					return _this4.getMany([datum]).then(function () {
 						return _this4.find(datum);
@@ -2307,7 +2307,6 @@ var Table = function () {
 				};
 			} else {
 				fetch = function fetch(datum) {
-
 					var rtn = _this4.connector.read(_this4.$encode(datum), null, options).then(function (res) {
 						if (options.hook) {
 							options.hook(res);
@@ -2486,27 +2485,25 @@ var Table = function () {
 						if (req.length) {
 							// this works because I can assume id was defined for 
 							// the feed
-							var query = _this8.$encode(req);
-
 							if (_this8.synthetic && _this8.synthetic.getMany) {
-								prom = _this8.synthetic.getMany(query, options).then(function (res) {
-									return _this8.collection.promise().then(function () {
-										return res;
-									});
-								});
+								var query = _this8.$encode(req);
+
+								prom = _this8.synthetic.getMany(query, options);
 							} else if (_this8.connector.readMany) {
-								prom = _this8.connector.readMany(query, null, options);
+								var _query = _this8.$encode(req);
+
+								prom = _this8.connector.readMany(_query, null, options);
 							} else {
 								// The feed doesn't have readMany, so many reads will work
 								prom = Promise.all(req.map(function (id) {
-									return _this8.connector.read(id, null, options);
+									return _this8.connector.read(_this8.$encode(id), null, options);
 								}));
 							}
 						} else {
 							prom = Promise.resolve([]); // nothing to do
 						}
 
-						return prom.then(resolve, reject);
+						prom.then(resolve, reject);
 					}, batch);
 				}), options.hook);
 			}
@@ -2553,6 +2550,10 @@ var Table = function () {
 					} else {
 						res = _this9.connector.all(obj, null, options);
 					}
+
+					res.catch(function () {
+						_this9.$all = null;
+					});
 
 					_this9.$all = res.then(function (res) {
 						if (options.hook) {
@@ -3562,10 +3563,8 @@ module.exports = {
 				index[k].empty();
 			}
 
-			if (parent.data) {
-				for (var i = 0, c = parent.data.length; i < c; i++) {
-					add(parent.data[i]);
-				}
+			for (var i = 0, c = parent.data.length; i < c; i++) {
+				add(parent.data[i]);
 			}
 		}
 
@@ -3650,25 +3649,21 @@ module.exports = {
 		return parent.makeChild(settings, function () {
 			var _this = this;
 
-			this.empty();
+			this.empty(); // empty calls next
 
-			if (parent.data) {
-				if (settings.before) {
-					settings.before();
-				}
-
-				parent.data.forEach(function (datum) {
-					if (dex.go(datum)) {
-						_this.add(datum);
-					}
-				});
-
-				if (settings.after) {
-					settings.after();
-				}
+			if (settings.before) {
+				settings.before();
 			}
 
-			this.next();
+			parent.data.forEach(function (datum) {
+				if (dex.go(datum)) {
+					_this.add(datum);
+				}
+			});
+
+			if (settings.after) {
+				settings.after();
+			}
 		});
 	}
 };
@@ -3685,17 +3680,15 @@ module.exports = {
 		return parent.makeChild(settings, function () {
 			this.empty();
 
-			if (parent.data) {
-				if (settings.before) {
-					settings.before();
-				}
+			if (settings.before) {
+				settings.before();
+			}
 
-				this.consume(parent.data);
-				this.data.sort(dex.go);
+			this.consume(parent.data);
+			this.data.sort(dex.go);
 
-				if (settings.after) {
-					settings.after();
-				}
+			if (settings.after) {
+				settings.after();
 			}
 		});
 	}

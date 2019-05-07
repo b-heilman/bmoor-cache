@@ -202,7 +202,7 @@ class Table {
 				.then(() => this.collection.promise())
 				.then(() => this.find(obj));
 			};
-		}else if (batch || batch === 0){
+		}else if ((batch || batch === 0) && this.connector.readMany){
 			fetch = datum => {
 				return this.getMany([datum])
 				.then(() => {
@@ -211,7 +211,6 @@ class Table {
 			};
 		}else{
 			fetch = datum => {
-				
 				const rtn = this.connector.read(this.$encode(datum), null, options)
 				.then(res => {
 					if (options.hook){
@@ -369,24 +368,25 @@ class Table {
 					if ( req.length ){
 						// this works because I can assume id was defined for 
 						// the feed
-						const query = this.$encode(req);
-
 						if (this.synthetic && this.synthetic.getMany){
-							prom = this.synthetic.getMany(query, options)
-							.then(res => this.collection.promise()
-								.then(() => res)
-							);
+							const query = this.$encode(req);
+
+							prom = this.synthetic.getMany(query, options);
 						} else if (this.connector.readMany){
+							const query = this.$encode(req);
+
 							prom = this.connector.readMany(query, null, options);
 						} else {
 							// The feed doesn't have readMany, so many reads will work
-							prom = Promise.all(req.map(id => this.connector.read(id, null, options)));
+							prom = Promise.all(req.map(id => 
+								this.connector.read(this.$encode(id), null, options)
+							));
 						}
 					} else {
 						prom = Promise.resolve([]); // nothing to do
 					}
 
-					return prom.then(resolve, reject);
+					prom.then(resolve, reject);
 				}, batch);
 			}), options.hook);
 		}
@@ -430,12 +430,16 @@ class Table {
 					res = this.connector.all(obj, null, options);
 				}
 				
+				res.catch(() => {
+					this.$all = null;
+				});
+
 				this.$all = res.then( (res) => {
 					if ( options.hook ){
 						options.hook( res );
 					}
 
-					this.consume( res );
+					this.consume(res);
 					
 					return this.collection.promise();
 				});
@@ -664,7 +668,7 @@ class Table {
 				selections[test.hash] = op = {
 					filter: rtn.then(() => this.collection.promise())
 					.then(() => {
-						var res = this.collection.filter( test ),
+						var res = this.collection.filter(test),
 							disconnect = res.disconnect;
 
 						res.disconnect = function(){
