@@ -170,7 +170,11 @@ class Table {
 	}
 
 	consume( arr ){
-		return Promise.all(arr.map(d=>this.set(d)));
+		const rtn = Promise.all(arr.map(d=>this.set(d)));
+
+		rtn.then(() => this.collection.goHot());
+		
+		return rtn;
 	}
 
 	del( obj ){

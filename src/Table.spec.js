@@ -417,6 +417,36 @@ describe('bmoor-cache::Table', function(){
 				}).catch(done);
 			});
 
+			it ('should respond even blank response', function( done ){
+				httpMock.expect('/test/all').respond([
+				]);
+
+				table.select({type:'fly'})
+				.then(function(res){
+					expect(res.data.length).toBe(0);
+
+					done();
+				}).catch(done);
+			});
+
+			it ('should respond even if filter miss', function( done ){
+				httpMock.expect('/test/all').respond([
+					{ id: 1, type: 'dog' },
+					{ id: 2, type: 'cat' },
+					{ id: 3, type: 'dog' },
+					{ id: 4, type: 'seal' },
+					{ id: 5, type: 'goose' },
+					{ id: 6, type: 'dog' }
+				]);
+
+				table.select({type:'monkey'})
+				.then(function(res){
+					expect(res.data.length).toBe(0);
+
+					done();
+				}).catch(done);
+			});
+
 			it('should cache selectes', function( done ){
 				var first,
 					second;
