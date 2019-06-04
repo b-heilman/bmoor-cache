@@ -2426,6 +2426,14 @@ var Table = function () {
 				options = {};
 			}
 
+			if (!arr.length) {
+				var blank = this.collectionFactory([]);
+
+				blank.goHot();
+
+				return Promise.resolve(blank);
+			}
+
 			return this.before('get-many', arr).then(function () {
 				var all = [];
 				var req = [];

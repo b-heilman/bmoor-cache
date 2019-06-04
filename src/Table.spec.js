@@ -75,6 +75,15 @@ describe('bmoor-cache::Table', function(){
 			}).catch(done);
 		});
 
+		it('should handle a blank getMany', function(done){
+			table.getMany([])
+			.then(d => {
+				expect( d.data.length ).toBe(0);
+				
+				done();
+			}).catch(done);
+		});
+
 		it('should cache a read many request', function( done ){
 			httpMock.expect('/test?id[]=1%2C2').respond([
 				{ id: 1 },

@@ -307,9 +307,17 @@ class Table {
 	}
 
 	// -- getMany
-	getMany( arr, options ){
+	getMany(arr, options){
 		if ( !options ){
 			options = {};
+		}
+
+		if (!arr.length){
+			const blank = this.collectionFactory([]);
+
+			blank.goHot();
+
+			return Promise.resolve(blank);
 		}
 
 		return this.before( 'get-many', arr )
