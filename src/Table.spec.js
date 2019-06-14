@@ -25,10 +25,210 @@ describe('bmoor-cache::Table', function(){
 
 			table.set( t );
 
-			table.collection.next.flush();
+			table.collection._next.flush();
 
 			expect( table.find( 1 ).getDatum() ).toBe( t );
 			expect( table.name ).toBe('test');
+		});
+	});
+
+	describe('::set', function(){
+		it('should block duplicates', function(){
+			const table = new Table('test',{
+				id: 'id'
+			});
+
+			table.set({
+				id: 1,
+				foo: 'bar'
+			});
+
+			expect(table.collection.data.length).toBe(1);
+			expect(table.collection.data[0].$('foo')).toBe('bar');
+
+			table.set({
+				id: 1,
+				foo: 'dar'
+			});
+
+			expect(table.collection.data.length).toBe(1);
+			expect(table.collection.data[0].$('foo')).toBe('dar');
+
+			table.set({
+				id: 1
+			}, {
+				foo: 'helloWorld'
+			});
+
+			expect(table.collection.data.length).toBe(1);
+			expect(table.collection.data[0].$('foo')).toBe('helloWorld');
+		});
+	});
+
+	describe('::consume', function(){
+		it('should block duplicates', function(){
+			const table = new Table('test',{
+				id: 'id'
+			});
+
+			table.consume([{
+				id: 1,
+				foo: 'umm'
+			}, {
+				id: 1,
+				foo: 'bar'
+			}]);
+
+			expect(table.collection.data.length).toBe(1);
+			expect(table.collection.data[0].$('foo')).toBe('bar');
+
+			table.consume([{
+				id: 1,
+				foo: 'dar'
+			}]);
+
+			expect(table.collection.data.length).toBe(1);
+			expect(table.collection.data[0].$('foo')).toBe('dar');
+
+			table.set({
+				id: 1
+			}, {
+				foo: 'helloWorld'
+			});
+
+			expect(table.collection.data.length).toBe(1);
+			expect(table.collection.data[0].$('foo')).toBe('helloWorld');
+		});
+	});
+
+	describe('::getTemp', function(){
+		beforeEach(function(){
+			httpMock.enable();
+		});
+
+		afterEach(function(){
+			httpMock.verifyWasFulfilled();
+		});
+
+		it('should block duplicates - insert', function(done){
+			const table = new Table('test',{
+				id: 'id',
+				connector: new Feed({
+					create: '/test/create',
+					update: '/test/update/{{id}}'
+				})
+			});
+
+			table.getTemp({
+				foo: 'bar'
+			}, 'foo-bar-1')
+			.then(function(temp){
+				expect(table.collection.data.length).toBe(1);
+				expect(temp).toBeDefined();
+					
+				httpMock.expect('/test/create', {
+					$id: 'foo-bar-1',
+					foo: 'bar'
+				}).respond({
+					id: 3,
+					foo: 'woot'
+				});
+
+				return table.insert(temp)
+				.then(function(proxy){
+					expect(proxy.getDatum().id).toBe(3);
+					expect(proxy.getDatum().foo).toBe('woot');
+				
+					expect(table.collection.data.length).toBe(1);
+
+					done();
+				});
+			}).catch(done);
+		});
+
+		it('should block duplicates - push', function(done){
+			const table = new Table('test',{
+				id: 'id',
+				connector: new Feed({
+					create: '/test/create',
+					update: '/test/update/{{id}}'
+				})
+			});
+
+			table.getTemp({
+				foo: 'bar'
+			}, 'foo-bar-2')
+			.then(function(temp){
+				expect(table.collection.data.length).toBe(1);
+				expect(temp).toBeDefined();
+					
+				httpMock.expect('/test/create', {
+					$id: 'foo-bar-2',
+					foo: 'bar'
+				}).respond({
+					id: 3,
+					foo: 'woot'
+				});
+
+				return table.push(temp)
+				.then(function(proxy){
+					expect(proxy.getDatum().id).toBe(3);
+					expect(proxy.getDatum().foo).toBe('woot');
+				
+					expect(table.collection.data.length).toBe(1);
+
+					done();
+				});
+			}).catch(done);
+		});
+	});
+
+	describe('::push', function(){
+		beforeEach(function(){
+			httpMock.enable();
+		});
+
+		afterEach(function(){
+			httpMock.verifyWasFulfilled();
+		});
+		
+		it('should block duplicates - push', function(done){
+			const table = new Table('test',{
+				id: 'id',
+				connector: new Feed({
+					create: '/test/create',
+					update: '/test/update/{{id}}'
+				})
+			});
+
+			httpMock.expect('/test/create', {
+				foo: 'bar'
+			}).respond({
+				id: 3,
+				foo: 'bar'
+			});
+
+			httpMock.expect('/test/update/3', {
+				foo: 'helloWorld'
+			}).respond({
+				foo: 'sweet'
+			});
+
+			table.push({
+				foo: 'bar'
+			}).then(function(res){
+				res.getMask().foo = 'helloWorld';
+					
+				return table.push(res)
+				.then(function(proxy){
+					expect(proxy.getDatum().id).toBe(3);
+					expect(proxy.getDatum().foo).toBe('sweet');
+				
+					expect(table.collection.data.length).toBe(1);
+
+					done();
+				});
+			}).catch(done);
 		});
 	});
 
@@ -65,7 +265,7 @@ describe('bmoor-cache::Table', function(){
 				expect( d.getDatum().foo ).toBe( 'bar' );
 				
 				// make sure index gets this
-				table.collection.next.flush();
+				table.collection._next.flush();
 				
 				return table.get({id:1234}).then( function( d ){
 					expect( d.getDatum().foo ).toBe( 'bar' );

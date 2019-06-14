@@ -19,7 +19,7 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 				delete: '/test/delete/{{id}}'
 			})
 		});
-		mockery = new Wrapper( table, {
+		mockery = new Wrapper(table, {
 			all: [{
 				id: 1,
 				foo: 'bar'
@@ -64,7 +64,8 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 	it('should properly overload all request', function( done ){
 		mockery.enable();
 
-		table.all().then(function( res ){
+		table.all()
+		.then(function( res ){
 			expect( res.data.length ).toBe( 3 );
 			expect( res.data[0].getDatum().foo ).toBe( 'bar' );
 
@@ -104,7 +105,7 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 			expect( res.getDatum().id ).toBe( 20 );
 			expect( res.getDatum().foo ).toBe( 'bar20' );
 
-			table.collection.next.flush();
+			table.collection._next.flush();
 
 			table.get( 20 ).then(function( res ){
 				expect( res.getDatum().foo ).toBe( 'bar20' );

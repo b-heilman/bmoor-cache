@@ -225,32 +225,29 @@ function _possibleConstructorReturn(self, call) { if (!self) { throw new Referen
 
 function _inherits(subClass, superClass) { if (typeof superClass !== "function" && superClass !== null) { throw new TypeError("Super expression must either be null or a function, not " + typeof superClass); } subClass.prototype = Object.create(superClass && superClass.prototype, { constructor: { value: subClass, enumerable: false, writable: true, configurable: true } }); if (superClass) Object.setPrototypeOf ? Object.setPrototypeOf(subClass, superClass) : subClass.__proto__ = superClass; }
 
+// TODO : test
+
 var bmoor = __webpack_require__(0),
-    Eventing = bmoor.Eventing,
     setUid = bmoor.data.setUid,
-    oldPush = Array.prototype.push;
+    oldPush = Array.prototype.push,
+    Observable = bmoor.Observable;
 
 // designed for one way data flows.
 // src -> feed -> target
 
-var Feed = function (_Eventing) {
-	_inherits(Feed, _Eventing);
+var Feed = function (_Observable) {
+	_inherits(Feed, _Observable);
 
 	function Feed(src) {
 		var settings = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
 
 		_classCallCheck(this, Feed);
 
-		var _this = _possibleConstructorReturn(this, (Feed.__proto__ || Object.getPrototypeOf(Feed)).call(this));
+		var _this = _possibleConstructorReturn(this, (Feed.__proto__ || Object.getPrototypeOf(Feed)).call(this, settings));
 
-		_this.settings = settings;
-
-		// need to define next here because _track can call it
-		_this.next = bmoor.flow.window(function () {
-			_this.trigger('next', _this);
-		}, settings.windowMin || 0, settings.windowMax || 30);
-
+		var hot = false;
 		if (src) {
+			hot = true;
 			src.push = src.unshift = _this.add.bind(_this);
 
 			src.forEach(function (datum) {
@@ -263,7 +260,11 @@ var Feed = function (_Eventing) {
 		setUid(_this);
 
 		_this.data = src;
-		_this.cold = !src.length;
+		_this.parents = [];
+
+		if (hot) {
+			_this.next();
+		}
 		return _this;
 	}
 
@@ -308,104 +309,68 @@ var Feed = function (_Eventing) {
 		}
 	}, {
 		key: 'go',
-		value: function go(parent) {
-			this.empty();
+		value: function go() {
+			var _this2 = this;
 
-			this.consume(parent.data);
+			// only rerun if this has parents, otherwise go does nothing
+			if (this.parents.length) {
+				this.empty();
+
+				// definitely not performance friendly, not caring which parent
+				// triggered and brute forcing
+				this.parents.forEach(function (parent) {
+					_this2.consume(parent.data);
+				});
+			} else {
+				this.next();
+			}
+		}
+	}, {
+		key: 'next',
+		value: function next() {
+			_get(Feed.prototype.__proto__ || Object.getPrototypeOf(Feed.prototype), 'next', this).call(this, this.data);
 		}
 	}, {
 		key: 'goHot',
 		value: function goHot() {
-			this.cold = false;
 			this.next();
 		}
 	}, {
 		key: 'destroy',
 		value: function destroy() {
-			this.cold = true;
 			this.data = null;
 			this.disconnect();
-
-			this.trigger('complete');
-		}
-	}, {
-		key: 'subscribe',
-		value: function subscribe(onNext, onError, onComplete) {
-			var config = null;
-
-			if (bmoor.isFunction(onNext)) {
-				config = {
-					next: onNext,
-					error: onError || function () {
-						// anything for default?
-					},
-					complete: onComplete || function () {
-						// anything for default?
-					}
-				};
-			} else {
-				config = onNext;
-			}
-
-			if (!this.cold && config.next) {
-				// make it act like a hot observable
-				config.next(this);
-			}
-
-			return _get(Feed.prototype.__proto__ || Object.getPrototypeOf(Feed.prototype), 'subscribe', this).call(this, config);
-		}
-
-		// return back a promise that is active on the 'next'
-
-	}, {
-		key: 'promise',
-		value: function promise() {
-			var _this2 = this;
-
-			if (this.next.active() || this.cold) {
-				if (this._promise) {
-					return this._promise;
-				} else {
-					this._promise = new Promise(function (resolve, reject) {
-						var next = null;
-						var error = null;
-
-						next = _this2.once('next', function (collection) {
-							_this2._promise = null;
-
-							error();
-							resolve(collection);
-						});
-						error = _this2.once('error', function (ex) {
-							_this2._promise = null;
-
-							next();
-							reject(ex);
-						});
-					});
-				}
-
-				return this._promise;
-			} else {
-				return Promise.resolve(this);
-			}
 		}
 	}, {
 		key: 'follow',
 		value: function follow(parent, settings) {
 			var _this3 = this;
 
-			var disconnect = parent.subscribe(Object.assign({
+			this.parents.push(parent);
+
+			var disconnect = null;
+			var parentDisconnect = parent.subscribe(Object.assign({
 				next: function next(source) {
 					_this3.go(source);
 				},
 				complete: function complete() {
-					_this3.destroy();
-				},
-				error: function error() {
-					// TODO : what to call?
+					disconnect();
+
+					if (!_this3.parents.length) {
+						_this3.destroy();
+					}
 				}
 			}, settings));
+
+			disconnect = function disconnect() {
+				bmoor.array.remove(_this3.parents, parent);
+
+				parentDisconnect();
+
+				if (settings.disconnect) {
+					settings.disconnect();
+				}
+			};
 
 			if (this.disconnect) {
 				var old = this.disconnect;
@@ -416,12 +381,10 @@ var Feed = function (_Eventing) {
 			} else {
 				this.disconnect = function () {
 					disconnect();
-
-					if (settings.disconnect) {
-						settings.disconnect();
-					}
 				};
 			}
+
+			return parentDisconnect;
 		}
 
 		// I want to remove this
@@ -430,12 +393,13 @@ var Feed = function (_Eventing) {
 		key: 'sort',
 		value: function sort(fn) {
 			console.warn('Feed::sort, will be removed soon');
+
 			this.data.sort(fn);
 		}
 	}]);
 
 	return Feed;
-}(Eventing);
+}(Observable);
 
 module.exports = Feed;
 
@@ -738,8 +702,12 @@ var Collection = function (_Feed) {
 	}, {
 		key: '_track',
 		value: function _track(datum) {
+			var _this2 = this;
+
 			if (datum.on) {
-				datum.on[this.$$bmoorUid] = datum.on('update', this.next);
+				datum.on[this.$$bmoorUid] = datum.on('update', function () {
+					_this2.go();
+				});
 			}
 		}
 	}, {
@@ -1990,7 +1958,8 @@ function makeStub(table, old) {
 			return old.call(table, method);
 		} else {
 			return table.all().then(function () {
-				table.collection.next.flush();
+				table.collection._next.flush();
+
 				return old.call(table, method);
 			});
 		}
@@ -2088,6 +2057,8 @@ var bmoor = __webpack_require__(0),
     CacheProxy = __webpack_require__(13).default,
     ProxiedCollection = __webpack_require__(1).collection.Proxied;
 
+var tempCount = 1;
+
 var defaultSettings = {
 	proxyFactory: function proxyFactory(datum) {
 		return new CacheProxy(datum);
@@ -2124,7 +2095,7 @@ var Table = function () {
 		if (ops.proxy && !ops.proxyFactory) {
 			console.warn('ops.proxy will be deprecated in next major version');
 			ops.proxyFactory = function (datum) {
-				return new ops.proxy(datum);
+				return ops.proxy.factory ? ops.proxy.factory(datum) : new ops.proxy(datum);
 			};
 		}
 
@@ -2189,7 +2160,9 @@ var Table = function () {
 		};
 
 		this.$id = function (obj) {
-			return parser(_this.$datum(obj));
+			var datum = _this.$datum(obj);
+
+			return datum.$id || parser(datum);
 		};
 
 		this._getting = {};
@@ -2200,8 +2173,9 @@ var Table = function () {
 	_createClass(Table, [{
 		key: 'reset',
 		value: function reset() {
+			// if someone adds directly to the collection, then the data doesn't go through the usual hooks
 			this.collection = this.collectionFactory([]);
-			this.index = this.collection.index(this.$id);
+			this.index = new Map(); // use a local instance, don't us a delayed index from collection
 			this._selections = {};
 			this._getting = {};
 		}
@@ -2222,8 +2196,9 @@ var Table = function () {
 		value: function set(obj, delta) {
 			var _this2 = this;
 
-			var id = this.$id(obj),
-			    t = this.index.get(id);
+			var id = this.$id(obj);
+
+			var t = this.index.get(id);
 
 			if (id) {
 				if (t) {
@@ -2235,6 +2210,7 @@ var Table = function () {
 					this.normalize(obj);
 					t = this.proxyFactory(obj);
 
+					this.index.set(id, t);
 					this.collection.add(t);
 				}
 
@@ -2260,6 +2236,12 @@ var Table = function () {
 				return _this3.set(d);
 			}));
 
+			// this is very, very greedy, I need to create a local index
+			// that's added to real time..  Using a chained index results in
+			// a race condition or needed to reprocess the entire thing every
+			// time.
+			// this.index.go();
+
 			rtn.then(function () {
 				return _this3.collection.goHot();
 			});
@@ -2269,8 +2251,10 @@ var Table = function () {
 	}, {
 		key: 'del',
 		value: function del(obj) {
-			var t = this.index.get(this.$id(obj));
+			var id = this.$id(obj),
+			    t = this.index.get(id);
 
+			this.index.delete(id);
 			this.collection.remove(t);
 
 			return t;
@@ -2574,7 +2558,9 @@ var Table = function () {
 
 						_this9.consume(res);
 
-						return _this9.collection.promise();
+						return _this9.collection.promise().then(function () {
+							return _this9.collection;
+						});
 					});
 				}
 
@@ -2586,61 +2572,66 @@ var Table = function () {
 
 	}, {
 		key: 'insert',
-		value: function insert(obj, options) {
+		value: function insert(obj) {
 			var _this10 = this;
 
-			if (!options) {
-				options = {};
-			}
+			var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
 
 			return this.before('insert', obj).then(function () {
-				var t = _this10.find(obj);
+				var content = _this10.$datum(obj);
+				var temp = null;
 
-				if (_this10.synthetic && _this10.synthetic.insert) {
+				if (obj.$temp) {
+					temp = obj.$temp;
+				}
+
+				var t = _this10.find(content);
+
+				if (t && !temp) {
+					throw new Error('This already exists ' + JSON.stringify(obj));
+				} else if (_this10.synthetic && _this10.synthetic.insert) {
 					// if it exists, don't do anything
 					if (t) {
 						return Promise.resolve(t);
 					} else {
-						return _this10.synthetic.insert(obj, options).then(function () {
+						return _this10.synthetic.insert(content, options).then(function () {
 							return _this10.collection.promise();
 						}).then(function () {
 							return _this10.find(obj);
 						});
 					}
 				} else {
-					if (t) {
-						throw new Error('This already exists ' + JSON.stringify(obj));
-					} else {
-						return _this10.connector.create(obj, obj, options).then(function (res) {
-							if (options.hook) {
-								options.hook(res);
+					return _this10.connector.create(content, content, options).then(function (res) {
+						if (options.hook) {
+							options.hook(res);
+						}
+
+						var datum = void 0;
+
+						if (!options.ignoreResponse && bmoor.isObject(res)) {
+							datum = res;
+						} else {
+							datum = obj;
+
+							if (options.makeId) {
+								options.makeId(obj, res);
 							}
+						}
 
-							var datum = void 0;
-
-							if (!options.ignoreResponse && bmoor.isObject(res)) {
-								datum = res;
-							} else {
-								datum = obj;
-
-								if (options.makeId) {
-									options.makeId(obj, res);
+						return datum;
+					}).then(function (datum) {
+						return Promise.all([_this10.set(datum).then(function (proxy) {
+							return _this10.collection.promise().then(function () {
+								if (options.useProto) {
+									proxy.merge(obj);
 								}
-							}
 
-							return datum;
-						}).then(function (datum) {
-							return _this10.set(datum).then(function (proxy) {
-								return _this10.collection.promise().then(function () {
-									if (options.useProto) {
-										proxy.merge(obj);
-									}
-
-									return proxy;
-								});
+								return proxy;
 							});
+						}), temp ? _this10.del(temp) : null]).then(function (res) {
+							return res[0];
 						});
-					}
+					});
 				}
 			});
 		}
@@ -2650,12 +2641,10 @@ var Table = function () {
 
 	}, {
 		key: 'update',
-		value: function update(from, delta, options) {
+		value: function update(from, delta) {
 			var _this11 = this;
 
-			if (!options) {
-				options = {};
-			}
+			var options = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : {};
 
 			return this.before('update', from, delta).then(function () {
 				var proxy;
@@ -2710,12 +2699,10 @@ var Table = function () {
 
 	}, {
 		key: 'delete',
-		value: function _delete(obj, options) {
+		value: function _delete(obj) {
 			var _this12 = this;
 
-			if (!options) {
-				options = {};
-			}
+			var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
 
 			return this.before('delete', obj).then(function () {
 				var proxy = _this12.find(obj);
@@ -2752,8 +2739,10 @@ var Table = function () {
 
 	}, {
 		key: 'select',
-		value: function select(qry, options) {
+		value: function select(qry) {
 			var _this13 = this;
+
+			var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
 
 			return this.before('select', qry).then(function () {
 				var op,
@@ -2808,10 +2797,10 @@ var Table = function () {
 						filter: rtn.then(function () {
 							return _this13.collection.promise();
 						}).then(function () {
-							var res = _this13.collection.filter(test),
-							    disconnect = res.disconnect;
+							var rtn = _this13.collection.filter(test);
+							var disconnect = rtn.disconnect;
 
-							res.disconnect = function () {
+							rtn.disconnect = function () {
 								op.count--;
 
 								if (!op.count) {
@@ -2820,13 +2809,41 @@ var Table = function () {
 								}
 							};
 
-							return res;
+							return rtn;
 						}),
 						count: 1
 					};
 
 					return op.filter;
 				}
+			});
+		}
+	}, {
+		key: 'push',
+		value: function push(obj) {
+			var options = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
+
+			var datum = this.$datum(obj);
+			var id = this.$id(datum);
+
+			if (id && !datum.$id) {
+				return this.update(obj, false, options);
+			} else {
+				return this.insert(obj, options);
+			}
+		}
+	}, {
+		key: 'getTemp',
+		value: function getTemp() {
+			var base = arguments.length > 0 && arguments[0] !== undefined ? arguments[0] : {};
+			var id = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : 'temp-' + tempCount++;
+
+			base.$id = id;
+
+			return this.set(base).then(function (proxy) {
+				proxy.$temp = id;
+
+				return proxy;
 			});
 		}
 	}]);
@@ -3635,6 +3652,7 @@ module.exports = {
 		});
 
 		return {
+			go: makeIndex,
 			get: function get(search) {
 				var key = dex.parse(search);
 				return index[key];

@@ -6,6 +6,8 @@ const bmoor = require('bmoor'),
 	CacheProxy = require('./object/Proxy.js').default,
 	ProxiedCollection = require('bmoor-data').collection.Proxied;
 
+let tempCount = 1;
+
 var defaultSettings = {
 		proxyFactory: function( datum ){
 			return new CacheProxy( datum );
@@ -37,8 +39,10 @@ class Table {
 		
 		if ( ops.proxy && !ops.proxyFactory ){
 			console.warn('ops.proxy will be deprecated in next major version');
-			ops.proxyFactory = function( datum ){
-				return new (ops.proxy)( datum );
+			ops.proxyFactory = function(datum){
+				return ops.proxy.factory ?
+					ops.proxy.factory(datum) :
+					new (ops.proxy)(datum);
 			};
 		}
 
@@ -101,7 +105,7 @@ class Table {
 			);
 		}
 
-		this.$datum = function( obj ){
+		this.$datum = function(obj){
 			if ( obj instanceof DataProxy ){
 				obj = obj.getDatum();
 			}
@@ -109,8 +113,10 @@ class Table {
 			return obj;
 		};
 
-		this.$id = ( obj ) => {
-			return parser( this.$datum(obj) );
+		this.$id = (obj) => {
+			const datum = this.$datum(obj);
+
+			return datum.$id || parser(datum);
 		};
 
 		this._getting = {};
@@ -119,36 +125,39 @@ class Table {
 	}
 
 	reset(){
+		// if someone adds directly to the collection, then the data doesn't go through the usual hooks
 		this.collection = this.collectionFactory([]);
-		this.index = this.collection.index( this.$id );
+		this.index = new Map(); // use a local instance, don't us a delayed index from collection
 		this._selections = {};
 		this._getting = {};
 	}
 
 	// no promise routes
-	find( dex ){
-		if ( bmoor.isObject(dex) ){
+	find(dex){
+		if (bmoor.isObject(dex)){
 			dex = this.$id(dex);
 		}
 
-		return this.index.get( dex );
+		return this.index.get(dex);
 	}
 
-	set( obj, delta ){
-		var id = this.$id( obj ),
-			t = this.index.get( id );
+	set(obj, delta){
+		const id = this.$id(obj);
+			
+		let t = this.index.get(id);
 
 		if ( id ){
 			if( t ){
 				obj = delta || obj;
-				this.normalize( obj );
+				this.normalize(obj);
 
-				t.merge( delta || obj );
+				t.merge(delta || obj);
 			}else{
-				this.normalize( obj );
-				t = this.proxyFactory( obj );
+				this.normalize(obj);
+				t = this.proxyFactory(obj);
 
-				this.collection.add( t );
+				this.index.set(id, t);
+				this.collection.add(t);
 			}
 
 			this._getting[id] = null;
@@ -172,15 +181,23 @@ class Table {
 	consume( arr ){
 		const rtn = Promise.all(arr.map(d=>this.set(d)));
 
+		// this is very, very greedy, I need to create a local index
+		// that's added to real time..  Using a chained index results in
+		// a race condition or needed to reprocess the entire thing every
+		// time.
+		// this.index.go();
+
 		rtn.then(() => this.collection.goHot());
 		
 		return rtn;
 	}
 
 	del( obj ){
-		var t = this.index.get( this.$id(obj) );
+		var id = this.$id(obj),
+			t = this.index.get(id);
 
-		this.collection.remove( t );
+		this.index.delete(id);
+		this.collection.remove(t);
 
 		return t;
 	}
@@ -428,8 +445,8 @@ class Table {
 			options = {};
 		}
 
-		return this.before( 'all' ).then( () => {
-			if ( !this.$all || options.cached===false ){
+		return this.before('all').then(() => {
+			if (!this.$all || options.cached === false){
 				let res;
 
 				if (this.synthetic){
@@ -446,14 +463,15 @@ class Table {
 					this.$all = null;
 				});
 
-				this.$all = res.then( (res) => {
+				this.$all = res.then(res => {
 					if ( options.hook ){
 						options.hook( res );
 					}
 
 					this.consume(res);
 					
-					return this.collection.promise();
+					return this.collection.promise()
+					.then(() => this.collection);
 				});
 			}
 
@@ -462,51 +480,54 @@ class Table {
 	}
 
 	// -- insert
-	insert( obj, options ){
-		if ( !options ){
-			options = {};
-		}
+	insert(obj, options = {}){
+		return this.before('insert', obj)
+		.then(() => {
+			let content = this.$datum(obj);
+			let temp = null;
 
-		return this.before( 'insert', obj ).then( () => {
-			var t = this.find( obj );
+			if (obj.$temp){
+				temp = obj.$temp;
+			}
 
-			if (this.synthetic && this.synthetic.insert){
+			var t = this.find(content);
+
+			if (t && !temp){
+				throw new Error(
+					'This already exists ' + JSON.stringify(obj)
+				);
+			} else if (this.synthetic && this.synthetic.insert){
 				// if it exists, don't do anything
 				if ( t ){
 					return Promise.resolve(t);
 				}else{
-					return this.synthetic.insert(obj, options)
+					return this.synthetic.insert(content, options)
 					.then(() => this.collection.promise())
 					.then(() => this.find(obj));
 				}
 			}else{
-				if ( t ){
-					throw new Error(
-						'This already exists ' + JSON.stringify( obj )
-					);
-				}else{
-					return this.connector.create( obj, obj, options )
-					.then( res => {
-						if ( options.hook ){
-							options.hook( res );
+				return this.connector.create(content, content, options)
+				.then(res => {
+					if (options.hook){
+						options.hook(res);
+					}
+
+					let datum;
+
+					if (!options.ignoreResponse && bmoor.isObject(res)){
+						datum = res;
+					} else {
+						datum = obj;
+
+						if (options.makeId){
+							options.makeId(obj, res);
 						}
+					}
 
-						let datum;
-
-						if ( !options.ignoreResponse && bmoor.isObject(res) ){
-							datum = res;
-						} else {
-							datum = obj;
-
-							if ( options.makeId ){
-								options.makeId( obj, res );
-							}
-						}
-
-						return datum;
-					})
-					.then( datum => {
-						return this.set( datum )
+					return datum;
+				}).then(datum => {
+					return Promise.all([
+						this.set(datum)
 						.then(proxy => this.collection.promise()
 							.then(() => {
 								if ( options.useProto ){
@@ -515,30 +536,27 @@ class Table {
 
 								return proxy;
 							})
-						);
-					});
-				}
+						),
+						temp ? this.del(temp) : null
+					]).then(res => res[0]);
+				});
 			}
 		});
 	}
 
 	// -- update
 	// delta is optional
-	update( from, delta, options ){
-		if ( !options ){
-			options = {};
-		}
-
-		return this.before( 'update', from, delta )
-		.then( () => {
+	update(from, delta, options = {}){
+		return this.before('update', from, delta)
+		.then(() => {
 			var proxy;
 
 			if ( from instanceof DataProxy ){
 				proxy = from;
 				from = from.getDatum();
 			}else{
-				from = this.$encode( from );
-				proxy = this.find( from );
+				from = this.$encode(from);
+				proxy = this.find(from);
 			}
 
 			if (delta === true){
@@ -562,16 +580,16 @@ class Table {
 							}
 
 							if ( !options.ignoreResponse && bmoor.isObject(res) ){
-								proxy.merge( res );
+								proxy.merge(res);
 							}else if ( !options.ignoreDelta ){
-								proxy.merge( delta );
+								proxy.merge(delta);
 							}
 
 							return proxy;
 						});
 					});
-				}else if ( proxy ){
-					return Promise.resolve( proxy );
+				}else if (proxy){
+					return Promise.resolve(proxy);
 				}else{
 					throw new Error(
 						'Can not update that which does not exist' +
@@ -583,11 +601,7 @@ class Table {
 	}
 
 	// -- delete
-	delete( obj, options ){
-		if ( !options ){
-			options = {};
-		}
-
+	delete(obj, options = {}){
 		return this.before( 'delete', obj )
 		.then( () => {
 			var proxy = this.find( obj );
@@ -620,12 +634,11 @@ class Table {
 					JSON.stringify( obj )
 				);	
 			}
-
 		});
 	}
 
 	// -- select
-	select( qry, options ){
+	select(qry, options = {}){
 		return this.before( 'select', qry )
 		.then( () => {
 			var op,
@@ -680,10 +693,10 @@ class Table {
 				selections[test.hash] = op = {
 					filter: rtn.then(() => this.collection.promise())
 					.then(() => {
-						var res = this.collection.filter(test),
-							disconnect = res.disconnect;
+						const rtn = this.collection.filter(test);
+						const disconnect = rtn.disconnect;
 
-						res.disconnect = function(){
+						rtn.disconnect = function(){
 							op.count--;
 
 							if ( !op.count ){
@@ -692,13 +705,35 @@ class Table {
 							}
 						};
 
-						return res;
+						return rtn;
 					}),
 					count: 1
 				};
 
 				return op.filter;
 			}
+		});
+	}
+
+	push(obj, options = {}){
+		const datum = this.$datum(obj);
+		const id = this.$id(datum);
+
+		if (id && !datum.$id){
+			return this.update(obj, false, options);
+		} else {
+			return this.insert(obj, options);
+		}
+	}
+
+	getTemp(base = {}, id = 'temp-'+tempCount++){
+		base.$id = id;
+
+		return this.set(base)
+		.then(proxy => {
+			proxy.$temp = id;
+
+			return proxy;
 		});
 	}
 }

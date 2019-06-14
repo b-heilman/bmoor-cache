@@ -9,8 +9,9 @@ function makeStub( table, old ){
 		if ( method === 'all' ){
 			return old.call( table, method );
 		}else{
-			return table.all().then( () => {
-				table.collection.next.flush();
+			return table.all().then(() => {
+				table.collection._next.flush();
+
 				return old.call( table, method );
 			});
 		}
@@ -41,7 +42,7 @@ class Wrapper{
 					intercept: table.connector.all.$settings.intercept
 				};
 
-			table.before = makeStub( table, prev.before );
+			table.before = makeStub(table, prev.before);
 
 			table.connector.search = null; // force search through all
 			table.connector.all.$settings.intercept = mock.all;
