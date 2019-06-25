@@ -14,6 +14,9 @@ var defaultSettings = {
 		},
 		collectionFactory: function(src){
 			return new ProxiedCollection(src);
+		},
+		parseId: function(id){
+			return parseInt(id);
 		}
 	};
 
@@ -26,7 +29,7 @@ class Table {
 	* - id
 	* - proxy : proxy to apply to all elements
 	*/
-	constructor( name, ops ){
+	constructor(name, ops={}){
 		var parser,
 			id = ops.id;
 
@@ -37,6 +40,8 @@ class Table {
 		this.synthetic = ops.synthetic;
 		this.connector = ops.connector;
 		
+		ops = Object.assign({}, defaultSettings, ops);
+
 		if ( ops.proxy && !ops.proxyFactory ){
 			console.warn('ops.proxy will be deprecated in next major version');
 			ops.proxyFactory = function(datum){
@@ -46,11 +51,10 @@ class Table {
 			};
 		}
 
-		this.proxyFactory = ops.proxyFactory || 
-			defaultSettings.proxyFactory;
+		const parseId = ops.parseId;
 
-		this.collectionFactory = ops.collectionFactory || 
-			defaultSettings.collectionFactory;
+		this.proxyFactory = ops.proxyFactory;
+		this.collectionFactory = ops.collectionFactory;
 
 		if ( !ops.id ){
 			throw new Error(
@@ -92,11 +96,9 @@ class Table {
 				}
 			};
 			parser = function( qry ){
-				if ( bmoor.isObject(qry) ){
-					return bmoor.get(qry,id);
-				}else{
-					return qry;
-				}
+				return parseId(bmoor.isObject(qry) ?
+					bmoor.get(qry,id) : qry
+				);
 			};
 		}else{
 			throw new Error(
@@ -192,9 +194,10 @@ class Table {
 		return rtn;
 	}
 
+	// if you're going to delete a temp variable
 	del( obj ){
-		var id = this.$id(obj),
-			t = this.index.get(id);
+		const id = this.$id(obj);
+		const t = this.index.get(id);
 
 		this.index.delete(id);
 		this.collection.remove(t);
@@ -251,13 +254,21 @@ class Table {
 			const t = this.find(id);
 			
 			if (!t || (options&&options.cached===false)){
-				// this needs to be an active promise
-				if (this._getting[id]) {
-					return this._getting[id]
+				if (this.$all && options.cached !== false){
+					return this.$all
 					.then(() => {
-						return this.find(id);
+						const rtn = this.find(id);
+
+						if (rtn){
+							return rtn;
+						} else {
+							return fetch(obj); // we missed with an all, try this
+						}
 					});
-				}else{
+				} else if (this._getting[id]){
+					return this._getting[id]
+					.then(() => this.find(id));
+				} else {
 					return fetch(obj);
 				}
 			}else{
@@ -487,7 +498,8 @@ class Table {
 			let temp = null;
 
 			if (obj.$temp){
-				temp = obj.$temp;
+				temp = obj;
+				obj.merge(); // if they were working on the mask, make sure it's merged into the datum
 			}
 
 			var t = this.find(content);

@@ -2065,6 +2065,9 @@ var defaultSettings = {
 	},
 	collectionFactory: function collectionFactory(src) {
 		return new ProxiedCollection(src);
+	},
+	parseId: function parseId(id) {
+		return parseInt(id);
 	}
 };
 
@@ -2077,8 +2080,10 @@ var Table = function () {
  * - id
  * - proxy : proxy to apply to all elements
  */
-	function Table(name, ops) {
+	function Table(name) {
 		var _this = this;
+
+		var ops = arguments.length > 1 && arguments[1] !== undefined ? arguments[1] : {};
 
 		_classCallCheck(this, Table);
 
@@ -2092,6 +2097,8 @@ var Table = function () {
 		this.synthetic = ops.synthetic;
 		this.connector = ops.connector;
 
+		ops = Object.assign({}, defaultSettings, ops);
+
 		if (ops.proxy && !ops.proxyFactory) {
 			console.warn('ops.proxy will be deprecated in next major version');
 			ops.proxyFactory = function (datum) {
@@ -2099,9 +2106,10 @@ var Table = function () {
 			};
 		}
 
-		this.proxyFactory = ops.proxyFactory || defaultSettings.proxyFactory;
+		var parseId = ops.parseId;
 
-		this.collectionFactory = ops.collectionFactory || defaultSettings.collectionFactory;
+		this.proxyFactory = ops.proxyFactory;
+		this.collectionFactory = ops.collectionFactory;
 
 		if (!ops.id) {
 			throw new Error('bmoor-comm::Table requires a id field of function');
@@ -2141,11 +2149,7 @@ var Table = function () {
 				}
 			};
 			parser = function parser(qry) {
-				if (bmoor.isObject(qry)) {
-					return bmoor.get(qry, id);
-				} else {
-					return qry;
-				}
+				return parseId(bmoor.isObject(qry) ? bmoor.get(qry, id) : qry);
 			};
 		} else {
 			throw new Error('I do not know how to parse with' + JSON.stringify(id));
@@ -2248,11 +2252,14 @@ var Table = function () {
 
 			return rtn;
 		}
+
+		// if you're going to delete a temp variable
+
 	}, {
 		key: 'del',
 		value: function del(obj) {
-			var id = this.$id(obj),
-			    t = this.index.get(id);
+			var id = this.$id(obj);
+			var t = this.index.get(id);
 
 			this.index.delete(id);
 			this.collection.remove(t);
@@ -2313,8 +2320,17 @@ var Table = function () {
 				var t = _this4.find(id);
 
 				if (!t || options && options.cached === false) {
-					// this needs to be an active promise
-					if (_this4._getting[id]) {
+					if (_this4.$all && options.cached !== false) {
+						return _this4.$all.then(function () {
+							var rtn = _this4.find(id);
+
+							if (rtn) {
+								return rtn;
+							} else {
+								return fetch(obj); // we missed with an all, try this
+							}
+						});
+					} else if (_this4._getting[id]) {
 						return _this4._getting[id].then(function () {
 							return _this4.find(id);
 						});
@@ -2582,7 +2598,8 @@ var Table = function () {
 				var temp = null;
 
 				if (obj.$temp) {
-					temp = obj.$temp;
+					temp = obj;
+					obj.merge(); // if they were working on the mask, make sure it's merged into the datum
 				}
 
 				var t = _this10.find(content);

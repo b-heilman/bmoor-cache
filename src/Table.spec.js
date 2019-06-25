@@ -414,7 +414,7 @@ describe('bmoor-cache::Table', function(){
 		});
 		
 		describe('all requests', function(){
-			it('should cache a all request, and not need a matching read', function( done ){
+			it('should cache a all request, and not need a matching read', function(done){
 				var all = [
 					{
 						id: 1234,
@@ -445,7 +445,29 @@ describe('bmoor-cache::Table', function(){
 				});
 			});
 
-			it('should allow for a cache bust call of an all request', function( done ){
+			it('should not call a get if parallel with all', function(done){
+				var all = [
+					{
+						id: 1234,
+						foo: 'bar'
+					},
+					{
+						id: 1235,
+						foo: 'bar2'
+					}
+				];
+
+				httpMock.expect('/test/all').respond( all );
+
+				table.all();
+				table.get(1235).then(function( d ){
+					expect( d.getDatum() ).toEqual( all[1] );
+
+					done();
+				});
+			});
+
+			it('should allow for a cache bust call of an all request', function(done){
 				var all = [
 						{
 							id: 1234,
@@ -490,6 +512,31 @@ describe('bmoor-cache::Table', function(){
 				});
 			});
 		
+			it('should call a get if parallel with all and cached = false', function( done ){
+				var all = [
+						{
+							id: 1234,
+							foo: 'bar'
+						},
+						{
+							id: 1235,
+							foo: 'bar2'
+						}
+					];
+
+				httpMock.expect('/test/all').respond( all );
+				httpMock.expect('/test/1234').respond( all[0] );
+
+				table.all();
+				table.get({id:1234}, {cached: false})
+				.then(function( d ){
+					expect(d.getDatum()).toBe(all[0]);
+					expect(table.collection.data.length).toBe(2);
+
+					done();
+				});
+			});
+
 			it('should cache and call read on miss', function( done ){
 				var all = [
 						{
@@ -776,11 +823,13 @@ describe('bmoor-cache::Table', function(){
 
 		describe('child-one', function(){
 			beforeEach(function(done){
-				table1 = new Table('test1',{
-					id: 'id'
+				table1 = new Table('test1', {
+					id: 'id',
+					parseId: function(id){ return id; }
 				});
 				table2 = new Table('test2',{
 					id: 'foo',
+					parseId: function(id){ return id; },
 					links: [{
 						type: 'child-one', 
 						table: 'test1',
@@ -791,6 +840,7 @@ describe('bmoor-cache::Table', function(){
 				});
 				table3 = new Table('test3',{
 					id: 'id',
+					parseId: function(id){ return id; },
 					links: [{
 						type: 'child-one', 
 						table: 'test1',
@@ -877,12 +927,14 @@ describe('bmoor-cache::Table', function(){
 			beforeEach(function(done){
 				table1 = new Table('test1',{
 					id: 'id',
+					parseId: function(id){ return id; },
 					connector: new Feed({
 						update: '/test/update/{{id}}'
 					})
 				});
 				table2 = new Table('test2',{
 					id: 'foo',
+					parseId: function(id){ return id; },
 					links: [{
 						type: 'child-many', 
 						table: 'test1',
