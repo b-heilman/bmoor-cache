@@ -25,7 +25,7 @@ describe('bmoor-cache::Table', function(){
 
 			table.set( t );
 
-			table.collection._next.flush();
+			table.collection.publish();
 
 			expect( table.find( 1 ).getDatum() ).toBe( t );
 			expect( table.name ).toBe('test');
@@ -265,7 +265,7 @@ describe('bmoor-cache::Table', function(){
 				expect( d.getDatum().foo ).toBe( 'bar' );
 				
 				// make sure index gets this
-				table.collection._next.flush();
+				table.collection.publish();
 				
 				return table.get({id:1234}).then( function( d ){
 					expect( d.getDatum().foo ).toBe( 'bar' );
@@ -655,7 +655,7 @@ describe('bmoor-cache::Table', function(){
 			});
 		});
 
-		describe('select', function(){
+		describe('::select', function(){
 			it ('should work', function( done ){
 				httpMock.expect('/test/all').respond([
 					{ id: 1, type: 'dog' },
@@ -716,12 +716,14 @@ describe('bmoor-cache::Table', function(){
 					{ id: 6, type: 'dog' }
 				]);
 
-				table.select({type:'dog'}).then(function( res ){
+				table.select({type:'dog'})
+				.then(function( res ){
 					expect( res.data.length ).toBe( 3 );
 					first = res;
 				});
 
-				table.select({type:'dog'}).then(function( res ){
+				table.select({type:'dog'})
+				.then(function( res ){
 					expect( res.data.length ).toBe( 3 );
 
 					second = res;
@@ -730,7 +732,8 @@ describe('bmoor-cache::Table', function(){
 					first.disconnect();
 					second.disconnect();
 
-					table.select({type:'dog'}).then(function( res ){
+					table.select({type:'dog'})
+					.then(function( res ){
 						expect( second ).not.toBe( res );
 						done();
 					});
@@ -1261,22 +1264,25 @@ describe('bmoor-cache::Table', function(){
 		});
 
 		it('should ',function( done ){
-			httpMock.expect('/test/all').respond([{
+			httpMock.expect('/test/all')
+			.respond([{
 				id: 1234,
 				foo: 'bar',
 				value2: 1,
 				value3: [ 2, 3 ]
 			}]);
 
-			table.all().then(function( res ){
-				expect( res instanceof CacheCollection ).toBe( true );
+			table.all()
+			.then(function(res){
+				expect(res instanceof CacheCollection).toBe( true );
 
 				done();
 			});
 		});
 
 		it('should generate collections of the same type', function( done ){
-			httpMock.expect('/test/all').respond([{
+			httpMock.expect('/test/all')
+			.respond([{
 					id: 1,
 					foo: 'eins',
 					other: true
@@ -1300,16 +1306,21 @@ describe('bmoor-cache::Table', function(){
 			]);
 
 			table.all()
-			.then(function( res ){
+			.then(function(res){
 				var t = res.sorted((a,b) => {
 					return b.id - a.id;
-				}).filter({other:true});
+				});
 
-				expect( res.data.length ).toBe( 5 );
-				expect( t.data.length ).toBe( 3 );
-				expect( t instanceof CacheCollection ).toBe( true );
-			
-				done();
+				t.subscribe(data => {
+					expect(data.length).toBe(5);
+				});
+
+				t.filter({other:true})
+				.subscribe(data => {
+					expect( data.length ).toBe( 3 );
+
+					done();
+				});
 			}).catch(done);
 		});
 	});

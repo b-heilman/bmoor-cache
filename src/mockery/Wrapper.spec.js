@@ -105,7 +105,7 @@ describe('bmoor-cache/mockery::Wrapper', function(){
 			expect( res.getDatum().id ).toBe( 20 );
 			expect( res.getDatum().foo ).toBe( 'bar20' );
 
-			table.collection._next.flush();
+			table.collection.publish();
 
 			table.get( 20 ).then(function( res ){
 				expect( res.getDatum().foo ).toBe( 'bar20' );

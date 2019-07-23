@@ -183,15 +183,13 @@ class Table {
 	consume( arr ){
 		const rtn = Promise.all(arr.map(d=>this.set(d)));
 
-		// this is very, very greedy, I need to create a local index
-		// that's added to real time..  Using a chained index results in
-		// a race condition or needed to reprocess the entire thing every
-		// time.
-		// this.index.go();
+		return rtn.then(res => {
+			if (!this.collection.data.length){
+				this.collection.publish();
+			}
 
-		rtn.then(() => this.collection.goHot());
-		
-		return rtn;
+			this.collectionFactory(res);
+		});
 	}
 
 	// if you're going to delete a temp variable
@@ -342,8 +340,6 @@ class Table {
 
 		if (!arr.length){
 			const blank = this.collectionFactory([]);
-
-			blank.goHot();
 
 			return Promise.resolve(blank);
 		}
@@ -703,8 +699,7 @@ class Table {
 				.then(() => selection.filter);
 			}else{
 				selections[test.hash] = op = {
-					filter: rtn.then(() => this.collection.promise())
-					.then(() => {
+					filter: rtn.then(() => {
 						const rtn = this.collection.filter(test);
 						const disconnect = rtn.disconnect;
 
@@ -716,7 +711,7 @@ class Table {
 								disconnect();
 							}
 						};
-
+						
 						return rtn;
 					}),
 					count: 1
