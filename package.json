@@ -15,7 +15,7 @@
   },
   "dependencies": {
     "babel-polyfill": "^6.26.0",
-    "bmoor": "^0.4.16",
+    "bmoor": "^0.8.12",
     "bmoor-comm": "^0.6.0",
     "bmoor-data": "^0.6.1",
     "formdata-polyfill": "^3.0.18",
