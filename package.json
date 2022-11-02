@@ -25,7 +25,7 @@
     "babel-core": "^6.26.3",
     "babel-loader": "^7.1.5",
     "babel-preset-env": "^1.7.0",
-    "gulp": "3.9.1",
+    "gulp": "4.0.2",
     "gulp-jsdoc3": "0.3.0",
     "gulp-jshint": "^2.1.0",
     "gulp-load-plugins": "^1.6.0",
